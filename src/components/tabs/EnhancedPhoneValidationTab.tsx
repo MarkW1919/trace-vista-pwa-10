@@ -12,6 +12,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { ConsentWarning } from '@/components/ConsentWarning';
+import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { PhoneDetails } from '@/types/entities';
 
 interface CarrierInfo {
@@ -162,69 +163,41 @@ export const EnhancedPhoneValidationTab = () => {
   };
 
   const performEnhancedAnalysis = async (): Promise<EnhancedPhoneAnalysis> => {
-    // Step 1: Basic Validation
+    // Real implementation would call actual phone analysis services
+    // For now, return realistic analysis based on actual number patterns
+    // NO MOCK DATA - only real analysis or warnings about limitations
     setAnalysisProgress(10);
     await simulateAnalysisStep('Validating phone number format...', 300);
     
     const cleanNumber = phoneNumber.replace(/\D/g, '');
     if (cleanNumber.length !== 10 && cleanNumber.length !== 11) {
-      throw new Error('Invalid phone number format');
+      throw new Error('Invalid phone number format - Please verify the number');
     }
     
+    // In real implementation, this would call actual carrier lookup services
+    // For educational purposes, show limited real data analysis
+    
+    setAnalysisProgress(50);
+    await simulateAnalysisStep('Real carrier lookup would happen here...', 500);
+    
+    setAnalysisProgress(75);
+    await simulateAnalysisStep('Analyzing with limited real data...', 400);
+    
+    // Return minimal real analysis - no fabricated data
     const areaCode = cleanNumber.slice(-10, -7);
     const exchange = cleanNumber.slice(-7, -4);
     const subscriber = cleanNumber.slice(-4);
     
-    // Step 2: Geographic Analysis
-    setAnalysisProgress(25);
-    await simulateAnalysisStep('Analyzing geographic information...', 400);
+    const formattedNumber = `(${areaCode}) ${exchange}-${subscriber}`;
     
+    // Basic geographic info only (publicly available area code data)
     const locationInfo = AREA_CODE_DATABASE[areaCode] || {
       city: 'Unknown',
-      state: 'Unknown',
+      state: 'Unknown', 
       county: 'Unknown',
       timezone: 'Unknown'
     };
-    
-    // Step 3: Carrier Detection
-    setAnalysisProgress(40);
-    await simulateAnalysisStep('Identifying carrier and line type...', 500);
-    
-    const carrierKey = determineCarrier(areaCode, exchange);
-    const carrierInfo = CARRIER_DATABASE[carrierKey];
-    
-    // Step 4: Risk Assessment
-    setAnalysisProgress(60);
-    await simulateAnalysisStep('Performing risk and fraud analysis...', 600);
-    
-    const riskAssessment = calculateRiskAssessment(areaCode, exchange, subscriber);
-    
-    // Step 5: Portability History (Deep/Forensic mode)
-    if (analysisMode !== 'basic') {
-      setAnalysisProgress(75);
-      await simulateAnalysisStep('Tracing number portability history...', 700);
-    }
-    
-    const portabilityHistory = analysisMode !== 'basic' ? 
-      generatePortabilityHistory() : [];
-    
-    // Step 6: Social Presence Analysis (Forensic mode)
-    let socialPresence = { platforms: [], confidence: 0 };
-    if (analysisMode === 'forensic') {
-      setAnalysisProgress(85);
-      await simulateAnalysisStep('Analyzing social media presence...', 500);
-      socialPresence = analyzeSocialPresence(phoneNumber);
-    }
-    
-    // Step 7: Business Information (if applicable)
-    setAnalysisProgress(95);
-    await simulateAnalysisStep('Checking business registrations...', 300);
-    
-    const businessInfo = carrierInfo.type === 'landline' ? 
-      generateBusinessInfo() : undefined;
-    
-    const formattedNumber = `(${areaCode}) ${exchange}-${subscriber}`;
-    
+
     return {
       id: `phone-analysis-${Date.now()}`,
       type: 'phone',
@@ -232,20 +205,33 @@ export const EnhancedPhoneValidationTab = () => {
       formatted: formattedNumber,
       country: 'US',
       region: `${locationInfo.city}, ${locationInfo.state}`,
-      carrier: carrierInfo.name,
-      lineType: carrierInfo.type,
+      carrier: 'Real carrier lookup unavailable',
+      lineType: 'unknown' as 'mobile' | 'landline' | 'voip' | 'unknown',
       timezone: locationInfo.timezone,
       isValid: true,
-      confidence: calculateOverallConfidence(riskAssessment, carrierInfo.type),
-      source: 'Enhanced Phone Analysis',
+      confidence: 40, // Lower confidence - real world limitations
+      source: 'Basic Phone Analysis',
       timestamp: new Date(),
-      verified: true,
-      carrierInfo,
+      verified: false,
+      carrierInfo: {
+        name: 'Real carrier data unavailable',
+        type: 'unknown' as 'mobile' | 'landline' | 'voip',
+        network: 'Unknown',
+        mno: 'Requires premium API access',
+        coverage: ['Unknown']
+      },
       locationInfo,
-      riskAssessment,
-      portabilityHistory,
-      socialPresence,
-      businessInfo
+      riskAssessment: {
+        spam: 0,
+        fraud: 0, 
+        telemarketing: 0,
+        overall: 'low' as const
+      },
+      portabilityHistory: [], // Real data unavailable without API
+      socialPresence: {
+        platforms: [],
+        confidence: 0
+      }
     };
   };
 
@@ -475,6 +461,18 @@ export const EnhancedPhoneValidationTab = () => {
         </CardContent>
       </Card>
 
+      {analysisResult && analysisResult.confidence < 50 && (
+        <LowResultsWarning 
+          resultCount={1}
+          suggestions={[
+            "Phone analysis requires premium carrier lookup services",
+            "Contact telecom provider for detailed line information",
+            "Use professional skip tracing services for complete data",
+            "Verify number format and try alternative variations"
+          ]}
+        />
+      )}
+
       {/* Analysis Results */}
       {analysisResult && (
         <div className="grid gap-6">
@@ -681,10 +679,10 @@ export const EnhancedPhoneValidationTab = () => {
           <div className="flex items-start space-x-3">
             <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
             <div className="space-y-1">
-              <h4 className="font-medium text-warning-foreground">Professional Analysis Simulation</h4>
+              <h4 className="font-medium text-warning-foreground">Real Data Only - Limited Without API Access</h4>
               <p className="text-sm text-warning-foreground/80">
-                This tool simulates industry-standard phone intelligence analysis for educational purposes. 
-                Real phone analysis requires proper authorization and compliance with telecommunications regulations.
+                Real phone intelligence requires premium carrier API access. This tool provides basic geographic data only.
+                Professional skip tracing uses licensed databases for comprehensive phone analysis.
               </p>
             </div>
           </div>

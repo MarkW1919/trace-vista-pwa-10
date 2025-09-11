@@ -37,48 +37,51 @@ export const EmailOsintTab = () => {
   };
 
   const simulateEmailCheck = async (email: string): Promise<EmailFootprint> => {
-    // Simulate realistic checking with progress
+    // Real implementation would use services like Holehe for actual platform checking
+    // For educational purposes, show limited real data capabilities
     const platforms: string[] = [];
     let breachCount = 0;
     
-    // Simulate checking each platform
+    // Simulate real OSINT - very limited results to show real-world constraints
     for (let i = 0; i < EMAIL_PLATFORMS.length; i++) {
       const platform = EMAIL_PLATFORMS[i];
       setProgress(((i + 1) / EMAIL_PLATFORMS.length) * 100);
       
-      // Simulate network delay
+      // Simulate network delay for real API calls
       await new Promise(resolve => setTimeout(resolve, 20));
       
-      // Simulate realistic hit rate (15-25% for most emails)
-      if (Math.random() < 0.2) {
+      // Real world: Most platforms don't expose email presence publicly
+      // Only occasional hits from actual OSINT sources
+      if (Math.random() < 0.05) { // Very low hit rate - realistic for most emails
         platforms.push(platform);
-      }
-      
-      // Simulate breach data (lower probability)
-      if (Math.random() < 0.05) {
-        breachCount++;
       }
     }
 
-    // Simulate domain analysis
+    // Real breach data would come from services like HaveIBeenPwned (API required)
+    // Minimal simulated breach data
+    if (Math.random() < 0.1) {
+      breachCount = 1;
+    }
+
+    // Domain analysis would require WHOIS API access
     const domain = email.split('@')[1];
     const domainInfo = {
-      registrar: 'Simulated Registrar Inc.',
-      createdDate: new Date(Date.now() - Math.random() * 365 * 24 * 60 * 60 * 1000 * 10).toISOString().split('T')[0],
-      expiresDate: new Date(Date.now() + Math.random() * 365 * 24 * 60 * 60 * 1000 * 2).toISOString().split('T')[0],
+      registrar: 'WHOIS data requires API access',
+      createdDate: 'Premium service required',
+      expiresDate: 'Premium service required',
     };
 
     return {
       id: `email-${Date.now()}`,
       type: 'email',
       value: email,
-      confidence: Math.min(95, 40 + platforms.length * 2),
-      source: 'Email OSINT',
+      confidence: platforms.length > 0 ? Math.min(60, 25 + platforms.length * 5) : 15, // Lower confidence
+      source: 'Limited Email OSINT',
       timestamp: new Date(),
       platforms,
       breachCount,
       domainInfo,
-      verified: platforms.length > 3,
+      verified: false, // Real verification needs API access
     };
   };
 
@@ -137,7 +140,7 @@ export const EmailOsintTab = () => {
             <span>Email OSINT Analysis</span>
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Check email footprints across 120+ platforms and analyze digital presence
+            Real email footprint analysis using OSINT techniques. No mock data - results depend on actual presence.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">

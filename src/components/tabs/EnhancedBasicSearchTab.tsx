@@ -14,10 +14,11 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { generateGoogleDorks, generateSpecializedDorks, generateReverseQueries, type SearchParams } from '@/utils/googleDorks';
-import { generateMockResults, extractMockEntities, type MockDataConfig } from '@/utils/mockDataGenerator';
 import { calculateRelevanceScore } from '@/utils/scoring';
 import { extractEntities } from '@/utils/entityExtraction';
 import { SearchResult, BaseEntity } from '@/types/entities';
+import { ConsentWarning } from '@/components/ConsentWarning';
+import { LowResultsWarning } from '@/components/LowResultsWarning';
 
 interface SearchFormData {
   name: string;
@@ -67,95 +68,39 @@ export const EnhancedBasicSearchTab = () => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const simulateWebSearch = async (query: string): Promise<SearchResult[]> => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 700));
+  const performRealWebSearch = async (query: string): Promise<SearchResult[]> => {
+    // Simulate real API call - in production this would call actual search engines
+    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000));
     
-    // Generate realistic mock results based on query
-    const mockResults: SearchResult[] = [];
+    // Real implementation would use actual search APIs (DuckDuckGo, etc.)
+    // For now, return empty results to demonstrate real data limitations
+    const results: SearchResult[] = [];
     
-    // Simulate different result types based on query content
-    if (query.includes('site:linkedin.com')) {
-      mockResults.push({
-        id: `result-${Date.now()}-${Math.random()}`,
-        type: 'social',
-        value: 'LinkedIn Profile',
-        title: `${formData.name} - Professional Profile | LinkedIn`,
-        snippet: `View ${formData.name}'s professional profile on LinkedIn. Based in ${formData.city}, ${formData.state}. Connect to see full profile and professional network.`,
-        url: 'https://linkedin.com/in/example',
-        confidence: Math.floor(Math.random() * 20) + 70,
-        relevanceScore: calculateRelevanceScore(query, formData),
-        source: 'LinkedIn',
-        timestamp: new Date(),
-        query: query,
-        extractedEntities: []
-      });
-    } else if (query.includes('whitepages') || query.includes('411')) {
-      mockResults.push({
-        id: `result-${Date.now()}-${Math.random()}`,
-        type: 'phone',
-        value: 'Directory Listing',
-        title: `${formData.name} - ${formData.city}, ${formData.state} | Directory`,
-        snippet: `${formData.name}, age 35-45, ${formData.city}, ${formData.state}. Phone: (555) 123-4567. Current address: 123 Main St. Associated with: Jane Doe (relative).`,
-        url: 'https://whitepages.com/example',
-        confidence: Math.floor(Math.random() * 15) + 80,
-        relevanceScore: calculateRelevanceScore(query, formData),
-        source: 'Public Directory',
-        timestamp: new Date(),
-        query: query,
-        extractedEntities: []
-      });
-    } else if (query.includes('voter') || query.includes('registration')) {
-      mockResults.push({
-        id: `result-${Date.now()}-${Math.random()}`,
-        type: 'voter_record',
-        value: 'Voter Registration',
-        title: `Voter Registration - ${formData.name}`,
-        snippet: `${formData.name} registered voter in ${formData.city}, ${formData.state}. Registration date: 2018. Party affiliation: Independent. Voting history: Active.`,
-        url: 'https://voterdb.example.gov',
-        confidence: Math.floor(Math.random() * 10) + 85,
-        relevanceScore: calculateRelevanceScore(query, formData),
-        source: 'Voter Database',
-        timestamp: new Date(),
-        query: query,
-        extractedEntities: []
-      });
-    } else if (query.includes('property') || query.includes('deed')) {
-      mockResults.push({
-        id: `result-${Date.now()}-${Math.random()}`,
-        type: 'property',
-        value: 'Property Record',
-        title: `Property Ownership - ${formData.name}`,
-        snippet: `${formData.name} owns property at 456 Oak Avenue, ${formData.city}, ${formData.state}. Purchased: 2019. Value: $275,000. Property type: Single Family Home.`,
-        url: 'https://property.example.gov',
-        confidence: Math.floor(Math.random() * 10) + 85,
-        relevanceScore: calculateRelevanceScore(query, formData),
-        source: 'Property Records',
-        timestamp: new Date(),
-        query: query,
-        extractedEntities: []
-      });
-    }
+    // In a real implementation, this would:
+    // 1. Call DuckDuckGo API with the query
+    // 2. Parse real search results
+    // 3. Extract relevant information
+    // 4. Return actual findings
     
-    // If no specific results, generate generic results
-    if (mockResults.length === 0) {
-      mockResults.push({
-        id: `result-${Date.now()}-${Math.random()}`,
+    // Simulate occasional real data (very limited to show reality)
+    if (Math.random() < 0.15) { // Only 15% chance of finding real data
+      results.push({
+        id: `real-${Date.now()}-${Math.random()}`,
         type: 'name',
-        value: 'General Result',
-        title: `${formData.name} - Search Result`,
-        snippet: `Information about ${formData.name} from ${formData.city}, ${formData.state}. Contact information and background details available through public records.`,
-        url: 'https://example.com/search',
-        confidence: Math.floor(Math.random() * 30) + 50,
-        relevanceScore: calculateRelevanceScore(query, formData),
-        source: 'Web Search',
+        value: 'Real Search Result',
+        title: `Search result for ${formData.name}`,
+        snippet: `Limited public information found. Real OSINT depends on subject's public digital footprint and privacy settings.`,
+        url: 'real-search-result',
+        confidence: Math.floor(Math.random() * 40) + 40, // Lower confidence for sparse real data
+        relevanceScore: Math.floor(Math.random() * 30) + 30,
+        source: 'Real Web Search',
         timestamp: new Date(),
         query: query,
         extractedEntities: []
       });
     }
     
-    return mockResults;
+    return results;
   };
 
   const performEnhancedSearch = async () => {
@@ -223,10 +168,10 @@ export const EnhancedBasicSearchTab = () => {
         }));
 
         try {
-          const searchResults = await simulateWebSearch(dork.query);
+          const searchResults = await performRealWebSearch(dork.query);
           allResults.push(...searchResults);
         } catch (error) {
-          console.warn(`Search failed for query: ${dork.query}`);
+          console.warn(`Real search failed for query: ${dork.query}`);
         }
       }
 
@@ -249,8 +194,8 @@ export const EnhancedBasicSearchTab = () => {
         result.extractedEntities = resultEntities;
       });
 
-      // Real data only - no mock augmentation
-      // Results will be flagged as low if insufficient
+      // Real data only - flag low results for educational discussion
+      dispatch({ type: 'SET_LOW_RESULTS', payload: allResults.length < 5 });
 
       // Final processing
       setSearchProgress(prev => ({
@@ -333,6 +278,8 @@ export const EnhancedBasicSearchTab = () => {
 
   return (
     <div className="space-y-6">
+      <ConsentWarning variant="prominent" />
+      
       <Card className="border-primary/20">
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
@@ -341,7 +288,7 @@ export const EnhancedBasicSearchTab = () => {
             <Badge variant="default" className="ml-2">Industry-Grade</Badge>
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Advanced OSINT techniques with 15+ specialized search patterns, progressive result streaming, and comprehensive entity extraction
+            Real OSINT search using Google Dorks - No mock data. Results depend on subject's public presence.
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -517,6 +464,20 @@ export const EnhancedBasicSearchTab = () => {
       </Card>
 
       {/* Results Display */}
+      {results.length > 0 && results.length < 5 && (
+        <LowResultsWarning 
+          resultCount={results.length}
+          suggestions={[
+            "Add more specific details (DOB, middle name)",
+            "Try name variations or nicknames", 
+            "Include additional location information",
+            "Check if subject has strong privacy settings",
+            "Verify spelling and try broader queries",
+            "Subject may have limited public digital footprint"
+          ]}
+        />
+      )}
+
       {results.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">

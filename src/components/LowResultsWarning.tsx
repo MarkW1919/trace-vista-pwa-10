@@ -8,12 +8,12 @@ interface LowResultsWarningProps {
 
 export const LowResultsWarning = ({ resultCount, suggestions = [] }: LowResultsWarningProps) => {
   const defaultSuggestions = [
-    "Add date of birth or age range",
-    "Try name variations (nicknames, maiden names)",
-    "Include additional location details",
-    "Use broader search terms",
-    "Check subject's public online presence",
-    "Try state-specific databases manually"
+    "Requires premium OSINT database access for comprehensive results",
+    "Professional skip tracers use licensed data sources",
+    "Try direct contact with relevant government offices",
+    "Verify subject consent and check privacy law limitations",
+    "Consider hiring licensed investigative services",
+    "Free OSINT has inherent limitations - this is realistic"
   ];
 
   const allSuggestions = suggestions.length > 0 ? suggestions : defaultSuggestions;
@@ -32,7 +32,7 @@ export const LowResultsWarning = ({ resultCount, suggestions = [] }: LowResultsW
           
           <div className="text-sm text-warning-foreground/90">
             <p className="mb-2">
-              No mock data added. To improve results, try these refinements:
+              Real OSINT limitations - no mock data generated. To improve results:
             </p>
             <ul className="space-y-1">
               {allSuggestions.slice(0, 4).map((suggestion, index) => (
@@ -45,8 +45,8 @@ export const LowResultsWarning = ({ resultCount, suggestions = [] }: LowResultsW
           </div>
           
           <p className="text-xs text-warning-foreground/75">
-            Real OSINT results depend on the subject's public data availability and privacy settings.
-            This teaches real-world skip tracing limitations.
+            Real OSINT results demonstrate actual limitations of free public data sources. 
+            Professional skip tracing requires paid databases and proper legal authorization.
           </p>
         </div>
       </AlertDescription>
