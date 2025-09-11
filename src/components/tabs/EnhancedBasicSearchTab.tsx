@@ -16,6 +16,7 @@ import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { generateGoogleDorks, generateSpecializedDorks, generateReverseQueries, type SearchParams } from '@/utils/googleDorks';
 import { calculateRelevanceScore } from '@/utils/scoring';
 import { extractEntities } from '@/utils/entityExtraction';
+import { performRealWebSearch } from '@/utils/realSearchAPI';
 import { SearchResult, BaseEntity } from '@/types/entities';
 import { ConsentWarning } from '@/components/ConsentWarning';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
@@ -66,41 +67,6 @@ export const EnhancedBasicSearchTab = () => {
 
   const handleInputChange = (field: keyof SearchFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const performRealWebSearch = async (query: string): Promise<SearchResult[]> => {
-    // Simulate real API call - in production this would call actual search engines
-    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1000));
-    
-    // Real implementation would use actual search APIs (DuckDuckGo, etc.)
-    // For now, return empty results to demonstrate real data limitations
-    const results: SearchResult[] = [];
-    
-    // In a real implementation, this would:
-    // 1. Call DuckDuckGo API with the query
-    // 2. Parse real search results
-    // 3. Extract relevant information
-    // 4. Return actual findings
-    
-    // Simulate occasional real data (very limited to show reality)
-    if (Math.random() < 0.15) { // Only 15% chance of finding real data
-      results.push({
-        id: `real-${Date.now()}-${Math.random()}`,
-        type: 'name',
-        value: 'Real Search Result',
-        title: `Search result for ${formData.name}`,
-        snippet: `Limited public information found. Real OSINT depends on subject's public digital footprint and privacy settings.`,
-        url: 'real-search-result',
-        confidence: Math.floor(Math.random() * 40) + 40, // Lower confidence for sparse real data
-        relevanceScore: Math.floor(Math.random() * 30) + 30,
-        source: 'Real Web Search',
-        timestamp: new Date(),
-        query: query,
-        extractedEntities: []
-      });
-    }
-    
-    return results;
   };
 
   const performEnhancedSearch = async () => {
@@ -168,7 +134,15 @@ export const EnhancedBasicSearchTab = () => {
         }));
 
         try {
-          const searchResults = await performRealWebSearch(dork.query);
+          const searchResults = await performRealWebSearch(dork.query, {
+            name: formData.name,
+            city: formData.city,
+            state: formData.state,
+            phone: formData.phone,
+            email: formData.email,
+            dob: formData.dob,
+            address: formData.address,
+          });
           allResults.push(...searchResults);
         } catch (error) {
           console.warn(`Real search failed for query: ${dork.query}`);
@@ -186,12 +160,16 @@ export const EnhancedBasicSearchTab = () => {
       // Extract entities from all results
       const extractedEntities: BaseEntity[] = [];
       allResults.forEach(result => {
-        const resultEntities = extractEntities(result.snippet, { 
-          searchName: formData.name, 
-          searchLocation: formData.city 
-        });
-        extractedEntities.push(...resultEntities);
-        result.extractedEntities = resultEntities;
+        if (result.extractedEntities) {
+          extractedEntities.push(...result.extractedEntities);
+        } else {
+          const resultEntities = extractEntities(result.snippet, { 
+            searchName: formData.name, 
+            searchLocation: formData.city 
+          });
+          extractedEntities.push(...resultEntities);
+          result.extractedEntities = resultEntities;
+        }
       });
 
       // Real data only - flag low results for educational discussion
@@ -512,11 +490,25 @@ export const EnhancedBasicSearchTab = () => {
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground mb-3">{result.snippet}</p>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Source: {result.source}</span>
-                    <span className="text-muted-foreground">
-                      Relevance: {result.relevanceScore}%
-                    </span>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                      <span>Source: {result.source}</span>
+                      <span>•</span>
+                      <span>Relevance: {result.relevanceScore}%</span>
+                      <span>•</span>
+                      <span>{result.timestamp.toLocaleDateString()}</span>
+                    </div>
+                    {result.url && result.url.startsWith('http') && (
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => window.open(result.url, '_blank')}
+                        className="text-xs"
+                      >
+                        <TrendingUp className="h-3 w-3 mr-1" />
+                        View Source
+                      </Button>
+                    )}
                   </div>
                   
                   {result.extractedEntities && result.extractedEntities.length > 0 && (
