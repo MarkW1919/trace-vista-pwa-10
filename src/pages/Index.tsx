@@ -6,8 +6,12 @@ import { IntroductionTab } from '@/components/tabs/IntroductionTab';
 import { BasicSearchTab } from '@/components/tabs/BasicSearchTab';
 import { SocialSearchTab } from '@/components/tabs/SocialSearchTab';
 import { PhoneValidationTab } from '@/components/tabs/PhoneValidationTab';
+import { EmailOsintTab } from '@/components/tabs/EmailOsintTab';
+import { PublicRecordsTab } from '@/components/tabs/PublicRecordsTab';
 import { NetworkAnalysisTab } from '@/components/tabs/NetworkAnalysisTab';
+import { ComprehensiveReportTab } from '@/components/tabs/ComprehensiveReportTab';
 import { MethodologyTab } from '@/components/tabs/MethodologyTab';
+import { SkipTracingProvider } from '@/contexts/SkipTracingContext';
 import { Toaster } from '@/components/ui/toaster';
 
 const Index = () => {
@@ -36,8 +40,14 @@ const Index = () => {
         return <SocialSearchTab />;
       case 'phone':
         return <PhoneValidationTab />;
+      case 'email':
+        return <EmailOsintTab />;
+      case 'records':
+        return <PublicRecordsTab />;
       case 'network':
         return <NetworkAnalysisTab />;
+      case 'report':
+        return <ComprehensiveReportTab />;
       case 'methodology':
         return <MethodologyTab />;
       default:
@@ -46,47 +56,49 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card/50 backdrop-blur supports-backdrop-blur:bg-card/50">
-        <div className="container mx-auto px-4 py-6">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold bg-gradient-hero bg-clip-text text-transparent mb-2">
-              Skip Tracing Educational Tool
-            </h1>
-            <p className="text-muted-foreground">
-              Learn OSINT techniques through hands-on skip tracing exercises
+    <SkipTracingProvider>
+      <div className="min-h-screen bg-background">
+        <header className="border-b bg-card/50 backdrop-blur supports-backdrop-blur:bg-card/50">
+          <div className="container mx-auto px-4 py-6">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold bg-gradient-hero bg-clip-text text-transparent mb-2">
+                Enhanced Deep Skip Tracing Educational Tool
+              </h1>
+              <p className="text-muted-foreground">
+                Master professional OSINT techniques with industry-comparable tools and comprehensive reporting
+              </p>
+            </div>
+          </div>
+        </header>
+
+        <main className="container mx-auto px-4 py-8">
+          <EthicalDisclaimer />
+          
+          <div className="space-y-8">
+            <NavigationTabs activeTab={activeTab} onTabChange={setActiveTab} />
+            
+            <div className="min-h-[600px]">
+              {renderTabContent()}
+            </div>
+          </div>
+        </main>
+
+        <footer className="border-t bg-muted/20 mt-16">
+          <div className="container mx-auto px-4 py-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              Enhanced Deep Skip Tracing Educational Tool v4.0 | Built for Educational Purposes | 
+              <span className="ml-2">Progressive Web App Enabled</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Always use ethically and in compliance with applicable laws
             </p>
           </div>
-        </div>
-      </header>
+        </footer>
 
-      <main className="container mx-auto px-4 py-8">
-        <EthicalDisclaimer />
-        
-        <div className="space-y-8">
-          <NavigationTabs activeTab={activeTab} onTabChange={setActiveTab} />
-          
-          <div className="min-h-[600px]">
-            {renderTabContent()}
-          </div>
-        </div>
-      </main>
-
-      <footer className="border-t bg-muted/20 mt-16">
-        <div className="container mx-auto px-4 py-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            Skip Tracing Educational Tool v3.0 | Built for Educational Purposes | 
-            <span className="ml-2">Progressive Web App Enabled</span>
-          </p>
-          <p className="text-xs text-muted-foreground mt-2">
-            Always use ethically and in compliance with applicable laws
-          </p>
-        </div>
-      </footer>
-
-      <PWAInstallPrompt />
-      <Toaster />
-    </div>
+        <PWAInstallPrompt />
+        <Toaster />
+      </div>
+    </SkipTracingProvider>
   );
 };
 

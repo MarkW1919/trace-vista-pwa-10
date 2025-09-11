@@ -11,7 +11,10 @@ const tabs = [
   { id: 'search', label: 'Basic Search', icon: Search },
   { id: 'social', label: 'Social Profiles', icon: Users },
   { id: 'phone', label: 'Phone Validation', icon: Phone },
+  { id: 'email', label: 'Email OSINT', icon: Search },
+  { id: 'records', label: 'Public Records', icon: Search },
   { id: 'network', label: 'Link Analysis', icon: Network },
+  { id: 'report', label: 'Report', icon: BookOpen },
   { id: 'methodology', label: 'Methodology', icon: BookOpen },
 ];
 
@@ -19,7 +22,7 @@ export const NavigationTabs = ({ activeTab, onTabChange }: NavigationTabsProps) 
   return (
     <div className="w-full overflow-x-auto">
       <Tabs value={activeTab} onValueChange={onTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-6 bg-muted/50">
+        <TabsList className="grid w-full grid-cols-9 bg-muted/50">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
