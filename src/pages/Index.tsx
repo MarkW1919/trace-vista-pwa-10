@@ -3,9 +3,10 @@ import { NavigationTabs } from '@/components/NavigationTabs';
 import { EthicalDisclaimer } from '@/components/EthicalDisclaimer';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { IntroductionTab } from '@/components/tabs/IntroductionTab';
+import { EnhancedBasicSearchTab } from '@/components/tabs/EnhancedBasicSearchTab';
 import { BasicSearchTab } from '@/components/tabs/BasicSearchTab';
 import { SocialSearchTab } from '@/components/tabs/SocialSearchTab';
-import { PhoneValidationTab } from '@/components/tabs/PhoneValidationTab';
+import { EnhancedPhoneValidationTab } from '@/components/tabs/EnhancedPhoneValidationTab';
 import { EmailOsintTab } from '@/components/tabs/EmailOsintTab';
 import { PublicRecordsTab } from '@/components/tabs/PublicRecordsTab';
 import { NetworkAnalysisTab } from '@/components/tabs/NetworkAnalysisTab';
@@ -35,11 +36,11 @@ const Index = () => {
       case 'intro':
         return <IntroductionTab />;
       case 'search':
-        return <BasicSearchTab />;
+        return <EnhancedBasicSearchTab />;
       case 'social':
         return <SocialSearchTab />;
       case 'phone':
-        return <PhoneValidationTab />;
+        return <EnhancedPhoneValidationTab />;
       case 'email':
         return <EmailOsintTab />;
       case 'records':
