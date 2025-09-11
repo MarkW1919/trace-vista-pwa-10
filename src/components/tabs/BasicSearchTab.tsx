@@ -48,14 +48,15 @@ const performSearch = async (formData: SearchFormData) => {
 const generateEducationalResults = (formData: SearchFormData) => {
   const results = [];
   
-  // Public records simulation
+  // Google search for public records
   if (formData.name && formData.city && formData.state) {
+    const searchQuery = `"${formData.name}" ${formData.city} ${formData.state} public records address phone`;
     results.push({
       id: `pub_${Date.now()}_1`,
-      title: `${formData.name} - Public Records Database`,
-      snippet: `Found records for ${formData.name} in ${formData.city}, ${formData.state}. Property records indicate residence at multiple addresses. Current address: ${formData.address || 'Address on file'}. Phone: ${formData.phone || '555-0123'}. Email: ${generateEmail(formData.name)}`,
-      url: `https://publicrecords.gov/search/${encodeURIComponent(formData.name)}`,
-      source: 'Public Records'
+      title: `${formData.name} - Public Records Search`,
+      snippet: `Search public records for ${formData.name} in ${formData.city}, ${formData.state}. This search includes property records, voter registration, and court documents. Current address: ${formData.address || 'Address on file'}. Phone: ${formData.phone || 'Phone on file'}. Email: ${generateEmail(formData.name)}`,
+      url: `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`,
+      source: 'Google Public Records'
     });
   }
 
@@ -63,55 +64,60 @@ const generateEducationalResults = (formData: SearchFormData) => {
   const socialPlatforms = ['LinkedIn', 'Facebook', 'Instagram'];
   const randomPlatform = socialPlatforms[Math.floor(Math.random() * socialPlatforms.length)];
   
+  const socialSearchQuery = `"${formData.name}" ${formData.city} ${randomPlatform.toLowerCase()}`;
   results.push({
     id: `social_${Date.now()}_2`,
-    title: `${formData.name} - ${randomPlatform} Profile`,
-    snippet: `Professional ${randomPlatform} profile located for ${formData.name}. Profile indicates residence in ${formData.city}, ${formData.state}. Connected to local businesses and community organizations. Last activity: Recent.`,
-    url: `https://${randomPlatform.toLowerCase()}.com/${generateUsername(formData.name)}`,
-    source: `Social Media (${randomPlatform})`
+    title: `${formData.name} - ${randomPlatform} Search`,
+    snippet: `Search for ${randomPlatform} profiles for ${formData.name} in ${formData.city}, ${formData.state}. Professional profiles often contain current location, employment, and connection information. Use advanced search techniques to find hidden profiles.`,
+    url: `https://www.google.com/search?q=${encodeURIComponent(socialSearchQuery)} site:${randomPlatform.toLowerCase()}.com`,
+    source: `${randomPlatform} Search`
   });
 
   // Business directory listing
   if (Math.random() > 0.3) { // 70% chance
+    const businessQuery = `"${formData.name}" ${formData.city} ${formData.state} business professional`;
     results.push({
       id: `biz_${Date.now()}_3`,
-      title: `${formData.name} - Business Directory`,
-      snippet: `Business listing found for ${formData.name}. Contact information includes phone ${formData.phone || '555-0456'} and business address in ${formData.city}. Professional history and references available.`,
-      url: `https://yellowpages.com/search/${encodeURIComponent(formData.name)}`,
-      source: 'Business Directory'
+      title: `${formData.name} - Business Directory Search`,
+      snippet: `Search business directories for ${formData.name}. May include LinkedIn profiles, company websites, professional listings, and business registrations. Contact information includes phone ${formData.phone || 'Phone on file'} and business address in ${formData.city}.`,
+      url: `https://www.google.com/search?q=${encodeURIComponent(businessQuery)} site:linkedin.com OR site:yellowpages.com OR site:whitepages.com`,
+      source: 'Business Directory Search'
     });
   }
 
   // Voter registration (if DOB provided)
   if (formData.dob) {
+    const voterQuery = `"${formData.name}" ${formData.city} ${formData.state} voter registration public records`;
     results.push({
       id: `voter_${Date.now()}_4`,
-      title: `${formData.name} - Voter Registration`,
-      snippet: `Voter registration record found. Registered voter in ${formData.city}, ${formData.state}. Party affiliation and voting history available through public records request.`,
-      url: `https://voterrecords.gov/search/${encodeURIComponent(formData.name)}`,
-      source: 'Voter Records'
+      title: `${formData.name} - Voter Registration Search`,
+      snippet: `Search voter registration records for ${formData.name} in ${formData.city}, ${formData.state}. Public voter files may contain current address, voting history, and party affiliation. Check state and county databases.`,
+      url: `https://www.google.com/search?q=${encodeURIComponent(voterQuery)} filetype:pdf OR site:gov`,
+      source: 'Voter Records Search'
     });
   }
 
   // Phone number lookup
   if (formData.phone) {
+    const phoneQuery = `"${formData.phone}" "${formData.name}" reverse phone lookup`;
     results.push({
       id: `phone_${Date.now()}_5`,
-      title: `Phone Number Lookup - ${formData.phone}`,
-      snippet: `Phone number ${formData.phone} registered to ${formData.name}. Carrier information available. Previous numbers and associated addresses found in telecommunications databases.`,
-      url: `https://phonelookup.com/search/${formData.phone}`,
-      source: 'Phone Records'
+      title: `Reverse Phone Lookup - ${formData.phone}`,
+      snippet: `Reverse lookup for phone number ${formData.phone} associated with ${formData.name}. Search includes carrier information, location data, and associated addresses. Check multiple reverse lookup databases.`,
+      url: `https://www.google.com/search?q=${encodeURIComponent(phoneQuery)} site:whitepages.com OR site:truecaller.com OR site:spokeo.com`,
+      source: 'Phone Lookup Search'
     });
   }
 
   // Court records
   if (Math.random() > 0.6) { // 40% chance
+    const courtQuery = `"${formData.name}" ${formData.state} court records case civil criminal`;
     results.push({
       id: `court_${Date.now()}_6`,
-      title: `${formData.name} - Court Records`,
-      snippet: `Civil court records found for ${formData.name} in ${formData.state}. Case types include property disputes and business matters. Full records available through court clerk.`,
-      url: `https://courtrecords.gov/search/${encodeURIComponent(formData.name)}`,
-      source: 'Court Records'
+      title: `${formData.name} - Court Records Search`,
+      snippet: `Search court records for ${formData.name} in ${formData.state}. May include civil cases, criminal records, bankruptcy filings, and property disputes. Check both state and federal court databases.`,
+      url: `https://www.google.com/search?q=${encodeURIComponent(courtQuery)} site:gov filetype:pdf OR site:justia.com`,
+      source: 'Court Records Search'
     });
   }
 
