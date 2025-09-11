@@ -63,10 +63,10 @@ const Index = () => {
           <div className="container mx-auto px-4 py-6">
             <div className="text-center">
               <h1 className="text-3xl font-bold bg-gradient-hero bg-clip-text text-transparent mb-2">
-                Enhanced Deep Skip Tracing Educational Tool
+                Real Data Skip Tracing Educational Tool
               </h1>
               <p className="text-muted-foreground">
-                Master professional OSINT techniques with industry-comparable tools and comprehensive reporting
+                Professional OSINT techniques using only real public data - no simulations
               </p>
             </div>
           </div>
@@ -87,11 +87,11 @@ const Index = () => {
         <footer className="border-t bg-muted/20 mt-16">
           <div className="container mx-auto px-4 py-8 text-center">
             <p className="text-sm text-muted-foreground">
-              Enhanced Deep Skip Tracing Educational Tool v4.0 | Built for Educational Purposes | 
+              Real Data Skip Tracing Educational Tool v5.0 | Real Data Only | 
               <span className="ml-2">Progressive Web App Enabled</span>
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              Always use ethically and in compliance with applicable laws
+              Real public data only - requires subject consent. Always use ethically and legally.
             </p>
           </div>
         </footer>

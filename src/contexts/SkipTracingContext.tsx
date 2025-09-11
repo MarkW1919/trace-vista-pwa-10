@@ -8,6 +8,7 @@ interface SkipTracingState {
   networkNodes: NetworkNode[];
   report: CompiledReport | null;
   searchHistory: string[];
+  hasLowResults: boolean;
   isLoading: {
     basicSearch: boolean;
     phoneSearch: boolean;
@@ -23,6 +24,7 @@ type SkipTracingAction =
   | { type: 'ADD_NETWORK_NODES'; payload: NetworkNode[] }
   | { type: 'GENERATE_REPORT'; payload: Partial<CompiledReport> }
   | { type: 'SET_LOADING'; payload: { module: keyof SkipTracingState['isLoading']; loading: boolean } }
+  | { type: 'SET_LOW_RESULTS'; payload: boolean }
   | { type: 'ADD_TO_HISTORY'; payload: string }
   | { type: 'CLEAR_ALL' };
 
@@ -32,6 +34,7 @@ const initialState: SkipTracingState = {
   networkNodes: [],
   report: null,
   searchHistory: [],
+  hasLowResults: false,
   isLoading: {
     basicSearch: false,
     phoneSearch: false,
@@ -48,6 +51,7 @@ function skipTracingReducer(state: SkipTracingState, action: SkipTracingAction):
       return {
         ...state,
         compiledResults: newResults.sort((a, b) => b.relevanceScore - a.relevanceScore),
+        hasLowResults: newResults.length < 5, // Flag low results
       };
 
     case 'ADD_ENTITIES':
@@ -101,6 +105,12 @@ function skipTracingReducer(state: SkipTracingState, action: SkipTracingAction):
       return {
         ...state,
         isLoading: { ...state.isLoading, [action.payload.module]: action.payload.loading },
+      };
+
+    case 'SET_LOW_RESULTS':
+      return {
+        ...state,
+        hasLowResults: action.payload,
       };
 
     case 'ADD_TO_HISTORY':

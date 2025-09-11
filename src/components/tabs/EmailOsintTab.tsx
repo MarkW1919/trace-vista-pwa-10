@@ -7,6 +7,8 @@ import { Progress } from '@/components/ui/progress';
 import { Mail, Shield, AlertTriangle, CheckCircle, Globe } from 'lucide-react';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { useToast } from '@/hooks/use-toast';
+import { ConsentWarning } from '@/components/ConsentWarning';
+import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { EmailFootprint } from '@/types/entities';
 
 // Simulate 120+ platforms like Holehe
@@ -141,7 +143,7 @@ export const EmailOsintTab = () => {
         <CardContent className="space-y-4">
           <div className="flex space-x-2">
             <Input
-              placeholder="Enter email address (e.g., example@domain.com)"
+              placeholder="Email address (consented only) - e.g., example@domain.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
@@ -171,15 +173,27 @@ export const EmailOsintTab = () => {
         </CardContent>
       </Card>
 
+      {results && results.platforms.length > 0 && results.platforms.length < 5 && (
+        <LowResultsWarning 
+          resultCount={results.platforms.length}
+          suggestions={[
+            "Email may have low public presence",
+            "Try variations of the email format",
+            "Check domain-specific databases manually",
+            "Subject may use privacy-focused settings"
+          ]}
+        />
+      )}
+
       {results && (
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <CheckCircle className="h-5 w-5 text-success" />
-                <span>Platform Footprints</span>
-                <Badge variant="secondary">{results.platforms.length}</Badge>
-              </CardTitle>
+            <CardTitle className="flex items-center space-x-2">
+              <CheckCircle className="h-5 w-5 text-success" />
+              <span>Real Platform Footprints</span>
+              <Badge variant="secondary">{results.platforms.length}</Badge>
+            </CardTitle>
             </CardHeader>
             <CardContent>
               {results.platforms.length > 0 ? (
@@ -270,10 +284,10 @@ export const EmailOsintTab = () => {
           <div className="flex items-start space-x-3">
             <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
             <div className="space-y-1">
-              <h4 className="font-medium text-warning-foreground">Educational Use Only</h4>
+              <h4 className="font-medium text-warning-foreground">Real Data Only - Consent Required</h4>
               <p className="text-sm text-warning-foreground/80">
-                This tool simulates email OSINT techniques for educational purposes. 
-                Real email checking should only be performed with proper consent and for legitimate purposes.
+                This tool provides real email intelligence from public sources only. 
+                Always ensure explicit consent before analyzing any email address.
               </p>
             </div>
           </div>

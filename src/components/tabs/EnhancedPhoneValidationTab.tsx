@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
+import { ConsentWarning } from '@/components/ConsentWarning';
 import { PhoneDetails } from '@/types/entities';
 
 interface CarrierInfo {
@@ -390,15 +391,17 @@ export const EnhancedPhoneValidationTab = () => {
 
   return (
     <div className="space-y-6">
+      <ConsentWarning />
+      
       <Card className="border-accent/20">
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Phone className="h-5 w-5 text-accent" />
-            <span>Enhanced Phone Intelligence & Validation</span>
+            <span>Enhanced Phone Intelligence - Real Data Only</span>
             <Badge variant="default" className="ml-2">PhoneInfoga-Level</Badge>
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Industry-grade phone analysis with carrier detection, risk assessment, portability history, and social presence analysis
+            Real phone analysis with carrier detection and risk assessment. No simulated data.
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -434,7 +437,7 @@ export const EnhancedPhoneValidationTab = () => {
           <div className="space-y-4">
             <div className="flex space-x-2">
               <Input
-                placeholder="Enter phone number (e.g., +1 555-123-4567)"
+                placeholder="Phone number (e.g., +1 555-123-4567) - Consented only"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 className="flex-1"

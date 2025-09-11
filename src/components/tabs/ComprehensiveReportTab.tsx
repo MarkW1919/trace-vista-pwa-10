@@ -396,10 +396,10 @@ export const ComprehensiveReportTab = () => {
           <div className="flex items-start space-x-3">
             <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
             <div className="space-y-1">
-              <h4 className="font-medium text-warning-foreground">Professional Usage Note</h4>
+              <h4 className="font-medium text-warning-foreground">Real Data Report - Professional Standards</h4>
               <p className="text-sm text-warning-foreground/80">
-                This educational report demonstrates industry-standard compilation techniques. 
-                Professional skip tracing requires verification through multiple independent sources 
+                This report compiles only real public data from consented searches. Results vary based on 
+                subject's public presence. Professional usage requires verification through multiple sources 
                 and compliance with applicable privacy laws.
               </p>
             </div>

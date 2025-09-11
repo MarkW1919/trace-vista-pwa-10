@@ -249,29 +249,8 @@ export const EnhancedBasicSearchTab = () => {
         result.extractedEntities = resultEntities;
       });
 
-      // Generate mock data if results are limited
-      if (allResults.length < 10) {
-        setSearchProgress(prev => ({
-          ...prev,
-          phase: 'Augmenting Results',
-          progress: 90,
-          currentQuery: 'Adding educational data for comprehensive training'
-        }));
-
-        const mockConfig: MockDataConfig = {
-          minResults: 10,
-          maxAugmentation: 15 - allResults.length,
-          includeRelatives: true,
-          includeBusinesses: searchMode !== 'basic',
-          includeProperties: searchMode === 'deep'
-        };
-
-        const mockResults = generateMockResults(searchParams, mockConfig);
-        const mockEntities = extractMockEntities(mockResults);
-        
-        allResults.push(...mockResults);
-        extractedEntities.push(...mockEntities);
-      }
+      // Real data only - no mock augmentation
+      // Results will be flagged as low if insufficient
 
       // Final processing
       setSearchProgress(prev => ({
@@ -399,11 +378,11 @@ export const EnhancedBasicSearchTab = () => {
             <div className="space-y-2">
               <Label htmlFor="name" className="flex items-center space-x-2">
                 <Search className="h-4 w-4" />
-                <span>Full Name (Required)</span>
+                <span>Full Name (Consented Subject Only)</span>
               </Label>
               <Input
                 id="name"
-                placeholder="e.g., John Doe"
+                placeholder="e.g., John Doe (with consent)"
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 className="border-primary/20"

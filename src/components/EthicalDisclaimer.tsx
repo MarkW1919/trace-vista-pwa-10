@@ -14,8 +14,8 @@ export const EthicalDisclaimer = () => {
           </h3>
           <div className="mt-3 space-y-3 text-sm text-warning-foreground/90">
             <p>
-              This tool is designed for <strong>educational purposes only</strong> to demonstrate 
-              OSINT (Open Source Intelligence) techniques in a controlled learning environment.
+              This tool returns <strong>ONLY real public OSINT data</strong> for educational demonstrations.
+              No mock or simulated data is generated. Requires explicit subject consent.
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="flex items-start space-x-2">
@@ -31,8 +31,8 @@ export const EthicalDisclaimer = () => {
               ⚠️ Do NOT use for harassment, illegal surveillance, stalking, or any unethical purposes.
             </p>
             <p className="text-xs">
-              All search results come from publicly available sources. This tool demonstrates 
-              the power of OSINT techniques and the importance of digital privacy awareness.
+              Results are from real public sources only. Variable results teach real-world OSINT limitations 
+              and the importance of subject consent and digital privacy awareness.
             </p>
           </div>
         </div>

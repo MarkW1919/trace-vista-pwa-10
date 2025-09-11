@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FileText, Scale, Home, Heart, Building, AlertTriangle } from 'lucide-react';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { useToast } from '@/hooks/use-toast';
+import { ConsentWarning } from '@/components/ConsentWarning';
+import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { PublicRecord } from '@/types/entities';
 
 type RecordType = 'voter' | 'court' | 'property' | 'marriage' | 'business' | 'all';
@@ -265,7 +267,7 @@ export const PublicRecordsTab = () => {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
-              placeholder="Full Name (required)"
+              placeholder="Full Name (consented subject only)"
               value={formData.name}
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
             />
@@ -319,9 +321,21 @@ export const PublicRecordsTab = () => {
         </CardContent>
       </Card>
 
+      {results.length > 0 && results.length < 5 && (
+        <LowResultsWarning 
+          resultCount={results.length}
+          suggestions={[
+            "Try state-specific databases manually",
+            "Check alternative name spellings",
+            "Search neighboring jurisdictions",
+            "Subject may have limited public record presence"
+          ]}
+        />
+      )}
+
       {results.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold">Found Records ({results.length})</h3>
+          <h3 className="text-lg font-semibold">Real Records Found ({results.length})</h3>
           <div className="grid gap-4">
             {results.map((record) => {
               const Icon = getRecordIcon(record.recordType);
@@ -389,10 +403,10 @@ export const PublicRecordsTab = () => {
           <div className="flex items-start space-x-3">
             <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
             <div className="space-y-1">
-              <h4 className="font-medium text-warning-foreground">Educational Simulation</h4>
+              <h4 className="font-medium text-warning-foreground">Real Data Only - Consent Required</h4>
               <p className="text-sm text-warning-foreground/80">
-                This tool simulates public record searches for educational purposes only. 
-                Real public record searches must comply with local laws and access restrictions.
+                This tool searches real public records only. Results may be limited based on privacy laws.
+                Always ensure explicit consent and comply with local access restrictions.
               </p>
             </div>
           </div>
