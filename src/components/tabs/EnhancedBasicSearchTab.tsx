@@ -9,17 +9,18 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   Search, Calendar, MapPin, Phone, Mail, Target, 
-  TrendingUp, Shield, Clock, Database, Zap 
+  TrendingUp, Shield, Clock, Database, Zap, ExternalLink, AlertTriangle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { generateGoogleDorks, generateSpecializedDorks, generateReverseQueries, type SearchParams } from '@/utils/googleDorks';
 import { calculateRelevanceScore } from '@/utils/scoring';
 import { extractEntities } from '@/utils/entityExtraction';
-import { performRealWebSearch } from '@/utils/realSearchAPI';
+import { performRealWebSearch } from '@/utils/realWebSearch';
 import { SearchResult, BaseEntity } from '@/types/entities';
 import { ConsentWarning } from '@/components/ConsentWarning';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
+import { RealOSINTGuide } from '@/components/RealOSINTGuide';
 
 interface SearchFormData {
   name: string;
@@ -456,78 +457,80 @@ export const EnhancedBasicSearchTab = () => {
         />
       )}
 
-      {results.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold flex items-center space-x-2">
-              <TrendingUp className="h-5 w-5 text-success" />
-              <span>Enhanced Search Results ({results.length})</span>
-            </h3>
-            <div className="flex items-center space-x-2">
-              <Badge variant="default">{entities.length} entities extracted</Badge>
-              <Badge variant="secondary">
-                {results.filter(r => r.confidence >= 70).length} high confidence
-              </Badge>
-            </div>
-          </div>
+      <RealOSINTGuide />
 
-          {/* Results Grid */}
+      {results.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center">
+            <Search className="h-5 w-5 mr-2 text-primary" />
+            OSINT Search Sources ({results.length})
+          </h3>
+          
+          <div className="mb-4">
+            <Badge variant="outline" className="mr-2">Manual Investigation Required</Badge>
+            <Badge variant="outline" className="mr-2">{entities.length} entities extracted</Badge>
+            <Badge variant="outline">
+              {results.filter(r => r.confidence > 0).length} high confidence
+            </Badge>
+          </div>
+          
           <div className="grid gap-4">
             {results.map((result) => (
-              <Card key={result.id} className="border-l-4 border-l-primary">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center justify-between">
-                    <span className="text-sm">{result.title}</span>
-                    <div className="flex items-center space-x-2">
-                      <Badge variant={result.confidence >= 80 ? "default" : "secondary"}>
-                        {result.confidence}% confidence
-                      </Badge>
-                      <Badge variant="outline" className="capitalize">
-                        {result.type.replace('_', ' ')}
-                      </Badge>
-                    </div>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-3">{result.snippet}</p>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-4 text-xs text-muted-foreground">
-                      <span>Source: {result.source}</span>
-                      <span>•</span>
-                      <span>Relevance: {result.relevanceScore}%</span>
-                      <span>•</span>
-                      <span>{result.timestamp.toLocaleDateString()}</span>
-                    </div>
-                    {result.url && result.url.startsWith('http') && (
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => window.open(result.url, '_blank')}
-                        className="text-xs"
-                      >
-                        <TrendingUp className="h-3 w-3 mr-1" />
-                        View Source
-                      </Button>
-                    )}
-                  </div>
-                  
-                  {result.extractedEntities && result.extractedEntities.length > 0 && (
-                    <div className="mt-3 pt-3 border-t">
-                      <h5 className="text-xs font-medium mb-2">Extracted Entities:</h5>
-                      <div className="flex flex-wrap gap-1">
-                        {result.extractedEntities.slice(0, 5).map((entity, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs">
-                            {entity.type}: {entity.value.slice(0, 20)}
-                            {entity.value.length > 20 ? '...' : ''}
-                          </Badge>
-                        ))}
+              <Card key={result.id} className="border-muted hover:border-primary/50 transition-colors">
+                <CardContent className="pt-4">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-foreground flex items-center">
+                          {result.source === 'OSINT Education' && '🎓 '}
+                          {result.title}
+                        </h4>
+                        <p className="text-sm text-muted-foreground mt-1">{result.snippet}</p>
                       </div>
+                      {result.confidence > 0 && (
+                        <Badge variant="outline" className="ml-3">
+                          {result.confidence}% confidence
+                        </Badge>
+                      )}
                     </div>
-                  )}
+                    
+                    <div className="flex items-center justify-between pt-2 border-t">
+                      <span className="text-xs text-muted-foreground">
+                        Platform: {result.source}
+                      </span>
+                      {result.url && (
+                        <Button 
+                          variant={result.source === 'OSINT Education' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => window.open(result.url, '_blank', 'noopener,noreferrer')}
+                          className="text-xs"
+                        >
+                          <ExternalLink className="h-3 w-3 mr-1" />
+                          {result.source === 'OSINT Education' ? 'Learn More' : 'Search Manually'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             ))}
           </div>
+          
+          <Card className="mt-6 border-warning/20 bg-warning/5">
+            <CardContent className="pt-6">
+              <div className="flex items-start space-x-3">
+                <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
+                <div>
+                  <h4 className="font-medium text-warning-foreground">Professional OSINT Reminder</h4>
+                  <p className="text-sm text-warning-foreground/80 mt-1">
+                    The links above are starting points. Professional investigators combine multiple sources, 
+                    use specialized databases, apply advanced techniques, and always verify findings through 
+                    cross-referencing. Results quality depends on subject's digital footprint and privacy settings.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

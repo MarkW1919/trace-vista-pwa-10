@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
   ClipboardList, Download, FileText, TrendingUp, Users, 
-  MapPin, Phone, Mail, AlertTriangle, CheckCircle, Calendar 
+  MapPin, Phone, Mail, AlertTriangle, CheckCircle, Calendar, BookOpen, ExternalLink 
 } from 'lucide-react';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { useToast } from '@/hooks/use-toast';
@@ -396,12 +396,50 @@ export const ComprehensiveReportTab = () => {
           <div className="flex items-start space-x-3">
             <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
             <div className="space-y-1">
-              <h4 className="font-medium text-warning-foreground">Real Data Report - Professional Standards</h4>
+              <h4 className="font-medium text-warning-foreground">Educational OSINT Report - Reality Check</h4>
               <p className="text-sm text-warning-foreground/80">
-                This report compiles only real public data from consented searches. Results vary based on 
-                subject's public presence. Professional usage requires verification through multiple sources 
-                and compliance with applicable privacy laws.
+                This educational tool demonstrates real OSINT limitations. Professional investigations require 
+                manual verification, specialized databases ($$$), legal compliance, and advanced techniques. 
+                Free automated searches have severe limitations and should not be relied upon for actual investigations.
               </p>
+              <div className="mt-3 text-xs text-warning-foreground/70 space-y-1">
+                <p>• Professional OSINT: 2-8 hours per subject, $50-200+ per comprehensive report</p>
+                <p>• Success depends on subject's digital footprint and privacy settings</p>
+                <p>• Always verify information through multiple independent sources</p>
+                <p>• Ensure compliance with applicable privacy laws and ethical guidelines</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="pt-6">
+          <div className="flex items-start space-x-3">
+            <BookOpen className="h-5 w-5 text-primary mt-0.5" />
+            <div>
+              <h4 className="font-medium text-primary-foreground">Continue Learning OSINT</h4>
+              <p className="text-sm text-primary-foreground/80 mt-1 mb-3">
+                Explore professional OSINT resources and methodologies:
+              </p>
+              <div className="space-y-2">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => window.open('https://www.sans.org/white-papers/36707/', '_blank')}
+                >
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  SANS OSINT Guide
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => window.open('https://osintframework.com/', '_blank')}
+                >
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  OSINT Framework
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>
