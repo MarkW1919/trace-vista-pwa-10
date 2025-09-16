@@ -17,6 +17,8 @@ import { ApiSearchService } from '@/services/apiSearchService';
 interface ApiKeyStatus {
   serpApi: boolean;
   hunter: boolean;
+  errors?: string[];
+  corsIssue?: boolean;
 }
 
 export const ApiKeyManager = () => {
@@ -26,6 +28,7 @@ export const ApiKeyManager = () => {
   const [isTestingKeys, setIsTestingKeys] = useState(false);
   const [keyStatus, setKeyStatus] = useState<ApiKeyStatus>({ serpApi: false, hunter: false });
   const [costTracking, setCostTracking] = useState({ totalCost: 0, monthlyUsage: 0, lastReset: '' });
+  const [skipValidation, setSkipValidation] = useState(false);
   
   const { toast } = useToast();
 
@@ -52,11 +55,23 @@ export const ApiKeyManager = () => {
       const results = await ApiSearchService.testApiKeys(serpKey, hunterKey);
       setKeyStatus(results);
       
-      if (results.serpApi || results.hunter) {
+      if (results.corsIssue) {
+        toast({
+          title: "CORS Restrictions Detected",
+          description: "Cannot test keys directly in browser. Keys saved based on format validation.",
+          variant: "default",
+        });
+      } else if (results.serpApi || results.hunter) {
         toast({
           title: "API Keys Tested",
           description: `SerpAPI: ${results.serpApi ? '✓ Valid' : '✗ Invalid'}, Hunter.io: ${results.hunter ? '✓ Valid' : '✗ Invalid'}`,
           variant: "default",
+        });
+      } else if (results.errors.length > 0) {
+        toast({
+          title: "API Key Issues",
+          description: results.errors[0],
+          variant: "destructive",
         });
       }
     } catch (error) {
@@ -80,31 +95,47 @@ export const ApiKeyManager = () => {
       return;
     }
 
+    if (skipValidation) {
+      // Skip validation and save keys directly
+      ApiSearchService.saveApiKeys(serpApiKey, hunterKey);
+      setKeyStatus({ serpApi: true, hunter: !!hunterKey });
+      toast({
+        title: "API Keys Saved",
+        description: "Keys saved without validation. You can test them during searches.",
+        variant: "default",
+      });
+      return;
+    }
+
     setIsTestingKeys(true);
     try {
       // Test keys before saving
       const results = await ApiSearchService.testApiKeys(serpApiKey, hunterKey);
       
-      if (results.serpApi) {
+      if (results.serpApi || results.corsIssue) {
         ApiSearchService.saveApiKeys(serpApiKey, hunterKey);
         setKeyStatus(results);
         
+        const message = results.corsIssue 
+          ? "Keys saved based on format validation (CORS prevented full testing)"
+          : "Your API keys have been saved and tested successfully";
+        
         toast({
           title: "API Keys Saved",
-          description: "Your API keys have been saved and tested successfully",
+          description: message,
           variant: "default",
         });
       } else {
         toast({
-          title: "Invalid SerpAPI Key",
-          description: "Please check your SerpAPI key and try again",
+          title: "API Key Validation Failed",
+          description: results.errors?.[0] || "Please check your API keys and try again",
           variant: "destructive",
         });
       }
     } catch (error) {
       toast({
         title: "Save Error",
-        description: "Failed to save API keys. Please try again.",
+        description: "Failed to save API keys. Please try again or use 'Skip Validation'.",
         variant: "destructive",
       });
     } finally {
@@ -229,27 +260,42 @@ export const ApiKeyManager = () => {
                 </p>
               </div>
 
-              <div className="flex space-x-2">
-                <Button 
-                  onClick={saveApiKeys} 
-                  disabled={isTestingKeys || !serpApiKey.trim()}
-                  className="flex-1"
-                >
-                  {isTestingKeys ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Testing Keys...
-                    </>
-                  ) : (
-                    <>
-                      <Shield className="h-4 w-4 mr-2" />
-                      Save & Test Keys
-                    </>
-                  )}
-                </Button>
-                <Button variant="outline" onClick={clearApiKeys}>
-                  Clear
-                </Button>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="skip-validation"
+                    checked={skipValidation}
+                    onChange={(e) => setSkipValidation(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Label htmlFor="skip-validation" className="text-sm">
+                    Skip validation (save keys without testing)
+                  </Label>
+                </div>
+                
+                <div className="flex space-x-2">
+                  <Button 
+                    onClick={saveApiKeys} 
+                    disabled={isTestingKeys || !serpApiKey.trim()}
+                    className="flex-1"
+                  >
+                    {isTestingKeys ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Testing Keys...
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="h-4 w-4 mr-2" />
+                        {skipValidation ? 'Save Keys' : 'Save & Test Keys'}
+                      </>
+                    )}
+                  </Button>
+                  <Button variant="outline" onClick={clearApiKeys}>
+                    Clear
+                  </Button>
+                </div>
               </div>
 
               {isTestingKeys && (
@@ -259,6 +305,29 @@ export const ApiKeyManager = () => {
                   </div>
                   <Progress value={66} className="w-full" />
                 </div>
+              )}
+
+              {keyStatus.errors && keyStatus.errors.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Validation Issues</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc list-inside space-y-1">
+                      {keyStatus.errors.map((error, index) => (
+                        <li key={index} className="text-sm">{error}</li>
+                      ))}
+                    </ul>
+                    {keyStatus.corsIssue && (
+                      <div className="mt-2 text-sm">
+                        <strong>Tip:</strong> Use "Skip validation" to save keys based on format, 
+                        or test them manually at{' '}
+                        <a href="https://serpapi.com/search" target="_blank" className="text-primary hover:underline">
+                          serpapi.com/search
+                        </a>
+                      </div>
+                    )}
+                  </AlertDescription>
+                </Alert>
               )}
             </div>
           </TabsContent>

@@ -380,25 +380,129 @@ export class ApiSearchService {
     });
   }
 
-  // Test API Keys
-  static async testApiKeys(serpApiKey: string, hunterKey?: string): Promise<{ serpApi: boolean; hunter: boolean }> {
+  // API Key Format Validation
+  static validateApiKeyFormat(serpApiKey: string, hunterKey?: string): { serpApi: boolean; hunter: boolean; errors: string[] } {
     const results = { serpApi: false, hunter: false };
+    const errors: string[] = [];
 
-    // Test SerpAPI
-    try {
-      const response = await fetch(`https://serpapi.com/search?engine=google&q=test&api_key=${serpApiKey}&num=1`);
-      results.serpApi = response.ok;
-    } catch (error) {
-      console.error('SerpAPI test failed:', error);
+    // SerpAPI key validation (typically 64 character hex string)
+    if (serpApiKey) {
+      if (serpApiKey.length < 32) {
+        errors.push('SerpAPI key appears too short (expected 32+ characters)');
+      } else if (!/^[a-fA-F0-9]+$/.test(serpApiKey)) {
+        errors.push('SerpAPI key should contain only hexadecimal characters (0-9, a-f)');
+      } else {
+        results.serpApi = true;
+      }
     }
 
-    // Test Hunter.io
+    // Hunter.io key validation (typically 40 character alphanumeric)
     if (hunterKey) {
+      if (hunterKey.length < 32) {
+        errors.push('Hunter.io key appears too short (expected 32+ characters)');
+      } else if (!/^[a-zA-Z0-9]+$/.test(hunterKey)) {
+        errors.push('Hunter.io key should contain only alphanumeric characters');
+      } else {
+        results.hunter = true;
+      }
+    }
+
+    return { ...results, errors };
+  }
+
+  // Test API Keys with CORS-compatible approach
+  static async testApiKeys(serpApiKey: string, hunterKey?: string): Promise<{ 
+    serpApi: boolean; 
+    hunter: boolean; 
+    errors: string[]; 
+    corsIssue: boolean; 
+  }> {
+    const formatValidation = this.validateApiKeyFormat(serpApiKey, hunterKey);
+    const results = { serpApi: false, hunter: false, errors: [...formatValidation.errors], corsIssue: false };
+
+    // If format validation fails, return early
+    if (!formatValidation.serpApi && serpApiKey) {
+      return results;
+    }
+
+    // Attempt actual API testing with CORS detection
+    if (serpApiKey && formatValidation.serpApi) {
       try {
-        const response = await fetch(`https://api.hunter.io/v2/account?api_key=${hunterKey}`);
-        results.hunter = response.ok;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+        const response = await fetch(`https://serpapi.com/search?engine=google&q=test&api_key=${serpApiKey}&num=1`, {
+          signal: controller.signal,
+          mode: 'cors'
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          results.serpApi = true;
+        } else if (response.status === 401) {
+          results.errors.push('SerpAPI key is invalid - received authentication error');
+        } else {
+          results.errors.push(`SerpAPI returned error: ${response.status} ${response.statusText}`);
+        }
       } catch (error) {
-        console.error('Hunter.io test failed:', error);
+        if (error instanceof Error) {
+          if (error.name === 'AbortError') {
+            results.errors.push('SerpAPI test timed out - this may indicate CORS restrictions');
+            results.corsIssue = true;
+          } else if (error.message.includes('CORS') || error.message.includes('cross-origin')) {
+            results.errors.push('Cannot test SerpAPI key due to browser CORS restrictions');
+            results.corsIssue = true;
+            // If format is valid but we have CORS issues, assume key might be valid
+            results.serpApi = formatValidation.serpApi;
+          } else if (error.message.includes('Failed to fetch')) {
+            results.errors.push('Cannot reach SerpAPI - check internet connection or CORS restrictions');
+            results.corsIssue = true;
+            results.serpApi = formatValidation.serpApi; // Assume valid if format is correct
+          } else {
+            results.errors.push(`SerpAPI test error: ${error.message}`);
+          }
+        }
+      }
+    }
+
+    // Test Hunter.io with similar approach
+    if (hunterKey && formatValidation.hunter) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch(`https://api.hunter.io/v2/account?api_key=${hunterKey}`, {
+          signal: controller.signal,
+          mode: 'cors'
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          results.hunter = true;
+        } else if (response.status === 401) {
+          results.errors.push('Hunter.io key is invalid - received authentication error');
+        } else {
+          results.errors.push(`Hunter.io returned error: ${response.status} ${response.statusText}`);
+        }
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.name === 'AbortError') {
+            results.errors.push('Hunter.io test timed out - this may indicate CORS restrictions');
+            results.corsIssue = true;
+          } else if (error.message.includes('CORS') || error.message.includes('cross-origin')) {
+            results.errors.push('Cannot test Hunter.io key due to browser CORS restrictions');
+            results.corsIssue = true;
+            results.hunter = formatValidation.hunter;
+          } else if (error.message.includes('Failed to fetch')) {
+            results.errors.push('Cannot reach Hunter.io - check internet connection or CORS restrictions');
+            results.corsIssue = true;
+            results.hunter = formatValidation.hunter;
+          } else {
+            results.errors.push(`Hunter.io test error: ${error.message}`);
+          }
+        }
       }
     }
 
