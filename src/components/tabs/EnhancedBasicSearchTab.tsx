@@ -24,6 +24,7 @@ import { ConsentWarning } from '@/components/ConsentWarning';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { RealOSINTGuide } from '@/components/RealOSINTGuide';
 import { AuthComponent } from '@/components/AuthComponent';
+import { ApiKeyTester } from '@/components/ApiKeyTester';
 
 interface SearchFormData {
   name: string;
@@ -343,6 +344,8 @@ export const EnhancedBasicSearchTab = () => {
       <ConsentWarning variant="prominent" />
       
       <AuthComponent />
+      
+      <ApiKeyTester />
       
       <ApiKeyManager />
       

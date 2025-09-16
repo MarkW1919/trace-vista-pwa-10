@@ -94,6 +94,17 @@ serve(async (req) => {
     if (!serpApiKey) {
       throw new Error('SerpAPI key not configured in Supabase secrets');
     }
+    
+    // Validate API key format
+    if (serpApiKey.length < 20 || !/^[a-zA-Z0-9_\-\.]+$/.test(serpApiKey)) {
+      throw new Error('Invalid SerpAPI key format detected');
+    }
+    
+    console.log('API Keys status:', {
+      serpApiAvailable: !!serpApiKey,
+      serpApiLength: serpApiKey.length,
+      hunterApiAvailable: !!hunterApiKey
+    });
 
     // Generate search queries based on mode
     const queries = generateSearchQueries(searchRequest.searchParams, searchRequest.searchMode);
@@ -104,26 +115,58 @@ serve(async (req) => {
       try {
         console.log(`Executing query: ${query.query} (${query.category})`);
         
-        const params = new URLSearchParams({
+        // More robust parameter handling
+        const searchParams = {
           engine: 'google',
           q: query.query,
           api_key: serpApiKey,
-          num: '10',
-          ...(searchRequest.location && { location: searchRequest.location })
+          num: '20',
+          safe: 'off',
+          no_cache: 'true'
+        };
+        
+        if (searchRequest.location) {
+          searchParams.location = searchRequest.location;
+        }
+        
+        const params = new URLSearchParams(searchParams);
+        
+        console.log(`SerpAPI request for "${query.category}":`, {
+          query: query.query,
+          location: searchRequest.location,
+          url: `https://serpapi.com/search?${params.toString().slice(0, 200)}...`
         });
 
         const response = await fetch(`https://serpapi.com/search?${params}`);
         
         if (!response.ok) {
-          console.error(`SerpAPI error for query "${query.query}":`, response.status);
+          const errorText = await response.text();
+          console.error(`SerpAPI error for query "${query.query}":`, {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorText,
+            url: `https://serpapi.com/search?${params}`
+          });
           continue;
         }
 
         const data = await response.json();
+        
+        if (data.error) {
+          console.error(`SerpAPI API error for "${query.query}":`, data.error);
+          continue;
+        }
         console.log(`SerpAPI response for "${query.category}":`, {
           organic_results: data.organic_results?.length || 0,
-          total_results: data.search_information?.total_results || 0
+          total_results: data.search_information?.total_results || 0,
+          search_metadata: data.search_metadata?.status,
+          credits_used: data.search_metadata?.total_time_taken
         });
+        
+        if (!data.organic_results || data.organic_results.length === 0) {
+          console.warn(`No organic results for query "${query.query}" - SerpAPI might be blocked or quota exceeded`);
+          continue;
+        }
 
         // Process results
         const results: SearchResult[] = (data.organic_results || []).map((result: any, index: number) => {
@@ -292,42 +335,43 @@ function generateSearchQueries(
   const queries: Array<{ query: string; category: string }> = [];
   const { name, city, state, phone, email, address } = params;
 
-  // Basic identity searches
-  queries.push({ query: `"${name}"`, category: 'Basic Identity' });
+  // Basic identity searches - simplified queries to avoid issues
+  queries.push({ query: name, category: 'Basic Identity' });
+  queries.push({ query: `"${name}"`, category: 'Exact Name Match' });
   
   if (city && state) {
-    queries.push({ query: `"${name}" "${city}" "${state}"`, category: 'Location-based' });
+    queries.push({ query: `${name} ${city} ${state}`, category: 'Location-based' });
   } else if (city || state) {
-    queries.push({ query: `"${name}" "${city || state}"`, category: 'Location-based' });
+    queries.push({ query: `${name} ${city || state}`, category: 'Location-based' });
   }
 
-  // Contact information searches
+  // Contact information searches - use simpler formats
   if (phone) {
-    queries.push({ query: `"${phone}"`, category: 'Phone Lookup' });
-    queries.push({ query: `"${name}" "${phone}"`, category: 'Name + Phone' });
+    queries.push({ query: phone, category: 'Phone Lookup' });
+    queries.push({ query: `${name} ${phone}`, category: 'Name + Phone' });
   }
 
   if (email) {
-    queries.push({ query: `"${name}" "${email}"`, category: 'Name + Email' });
+    queries.push({ query: `${name} ${email}`, category: 'Name + Email' });
   }
 
-  // Social media searches
-  queries.push({ query: `"${name}" site:linkedin.com`, category: 'LinkedIn' });
-  queries.push({ query: `"${name}" site:facebook.com`, category: 'Facebook' });
+  // Social media searches - simplified
+  queries.push({ query: `${name} site:linkedin.com`, category: 'LinkedIn' });
+  queries.push({ query: `${name} site:facebook.com`, category: 'Facebook' });
 
   if (mode === 'deep') {
-    // Additional deep search queries
-    queries.push({ query: `"${name}" site:twitter.com OR site:x.com`, category: 'Twitter/X' });
-    queries.push({ query: `"${name}" "company" OR "business" OR "work"`, category: 'Professional' });
-    queries.push({ query: `"${name}" "court" OR "record" OR "property"`, category: 'Public Records' });
+    // Additional deep search queries - simplified
+    queries.push({ query: `${name} site:twitter.com`, category: 'Twitter' });
+    queries.push({ query: `${name} company business work`, category: 'Professional' });
+    queries.push({ query: `${name} court record property`, category: 'Public Records' });
     if (address) {
-      queries.push({ query: `"${name}" "${address}"`, category: 'Address Search' });
+      queries.push({ query: `${name} ${address}`, category: 'Address Search' });
     }
   } else if (mode === 'targeted') {
-    // Targeted searches for specific use cases
-    queries.push({ query: `"${name}" "arrest" OR "court" OR "legal"`, category: 'Legal Records' });
-    queries.push({ query: `"${name}" "property" OR "real estate" OR "deed"`, category: 'Property Records' });
-    queries.push({ query: `"${name}" "obituary" OR "death" OR "memorial"`, category: 'Vital Records' });
+    // Targeted searches for specific use cases - simplified
+    queries.push({ query: `${name} arrest court legal`, category: 'Legal Records' });
+    queries.push({ query: `${name} property real estate deed`, category: 'Property Records' });
+    queries.push({ query: `${name} obituary death memorial`, category: 'Vital Records' });
   }
 
   // Limit queries based on mode
