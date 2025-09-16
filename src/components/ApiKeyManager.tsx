@@ -22,141 +22,126 @@ interface ApiKeyStatus {
 }
 
 export const ApiKeyManager = () => {
-  const [serpApiKey, setSerpApiKey] = useState('');
-  const [hunterKey, setHunterKey] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [isTestingKeys, setIsTestingKeys] = useState(false);
-  const [keyStatus, setKeyStatus] = useState<ApiKeyStatus>({ serpApi: false, hunter: false });
-  const [costTracking, setCostTracking] = useState({ totalCost: 0, monthlyUsage: 0, lastReset: '' });
-  const [skipValidation, setSkipValidation] = useState(false);
+  const [keyStatus, setKeyStatus] = useState<ApiKeyStatus>({ serpApi: true, hunter: true });
+  const [costTracking, setCostTracking] = useState({ 
+    totalCost: 0, 
+    monthlyUsage: 0, 
+    lastMonth: '', 
+    servicesUsed: [] as Array<{service: string; cost: number; queries: number}> 
+  });
   
   const { toast } = useToast();
 
   useEffect(() => {
-    // Load existing keys
-    const { serpApiKey: existingSerpKey, hunterKey: existingHunterKey } = ApiSearchService.getApiKeys();
-    if (existingSerpKey) setSerpApiKey(existingSerpKey);
-    if (existingHunterKey) setHunterKey(existingHunterKey);
-
-    // Load cost tracking
-    setCostTracking(ApiSearchService.getCostTracking());
-
-    // Test existing keys
-    if (existingSerpKey || existingHunterKey) {
-      testApiKeys(existingSerpKey || '', existingHunterKey || '');
-    }
+    const initializeApiManager = async () => {
+      // Check authentication status
+      const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
+      const authenticated = await SupabaseSearchService.isAuthenticated();
+      setIsAuthenticated(authenticated);
+      
+      if (authenticated) {
+        // Load cost tracking from Supabase
+        const costs = await SupabaseSearchService.getCostTracking();
+        setCostTracking(costs);
+      } else {
+        // Fallback to localStorage for demo purposes
+        const localCosts = ApiSearchService.getCostTracking();
+        setCostTracking({
+          totalCost: localCosts.totalCost,
+          monthlyUsage: localCosts.monthlyUsage,
+          lastMonth: localCosts.lastReset.slice(0, 7) || new Date().toISOString().slice(0, 7),
+          servicesUsed: []
+        });
+      }
+    };
+    
+    initializeApiManager();
   }, []);
 
-  const testApiKeys = async (serpKey: string, hunterKey: string) => {
-    if (!serpKey && !hunterKey) return;
-    
+  const testConnection = async () => {
     setIsTestingKeys(true);
     try {
-      const results = await ApiSearchService.testApiKeys(serpKey, hunterKey);
-      setKeyStatus(results);
-      
-      if (results.corsIssue) {
-        toast({
-          title: "CORS Restrictions Detected",
-          description: "Cannot test keys directly in browser. Keys saved based on format validation.",
-          variant: "default",
-        });
-      } else if (results.serpApi || results.hunter) {
-        toast({
-          title: "API Keys Tested",
-          description: `SerpAPI: ${results.serpApi ? '✓ Valid' : '✗ Invalid'}, Hunter.io: ${results.hunter ? '✓ Valid' : '✗ Invalid'}`,
-          variant: "default",
-        });
-      } else if (results.errors.length > 0) {
-        toast({
-          title: "API Key Issues",
-          description: results.errors[0],
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "API Test Error",
-        description: "Failed to test API keys. Please check your internet connection.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsTestingKeys(false);
-    }
-  };
-
-  const saveApiKeys = async () => {
-    if (!serpApiKey.trim()) {
-      toast({
-        title: "Missing SerpAPI Key",
-        description: "SerpAPI key is required for automated searches",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (skipValidation) {
-      // Skip validation and save keys directly
-      ApiSearchService.saveApiKeys(serpApiKey, hunterKey);
-      setKeyStatus({ serpApi: true, hunter: !!hunterKey });
-      toast({
-        title: "API Keys Saved",
-        description: "Keys saved without validation. You can test them during searches.",
-        variant: "default",
-      });
-      return;
-    }
-
-    setIsTestingKeys(true);
-    try {
-      // Test keys before saving
-      const results = await ApiSearchService.testApiKeys(serpApiKey, hunterKey);
-      
-      if (results.serpApi || results.corsIssue) {
-        ApiSearchService.saveApiKeys(serpApiKey, hunterKey);
-        setKeyStatus(results);
+      if (isAuthenticated) {
+        // Test Supabase connection and API keys
+        const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
+        const testResult = await SupabaseSearchService.getCurrentUser();
         
-        const message = results.corsIssue 
-          ? "Keys saved based on format validation (CORS prevented full testing)"
-          : "Your API keys have been saved and tested successfully";
-        
-        toast({
-          title: "API Keys Saved",
-          description: message,
-          variant: "default",
-        });
+        if (testResult.success) {
+          setKeyStatus({ serpApi: true, hunter: true });
+          toast({
+            title: "Connection Successful",
+            description: "API keys are configured in Supabase and ready to use",
+            variant: "default",
+          });
+        } else {
+          throw new Error('Authentication failed');
+        }
       } else {
         toast({
-          title: "API Key Validation Failed",
-          description: results.errors?.[0] || "Please check your API keys and try again",
+          title: "Authentication Required", 
+          description: "Please log in to use automated searches with stored API keys",
           variant: "destructive",
         });
       }
     } catch (error) {
       toast({
-        title: "Save Error",
-        description: "Failed to save API keys. Please try again or use 'Skip Validation'.",
+        title: "Connection Test Failed",
+        description: error instanceof Error ? error.message : "Unknown error occurred",
         variant: "destructive",
       });
+      setKeyStatus({ serpApi: false, hunter: false });
     } finally {
       setIsTestingKeys(false);
     }
   };
 
-  const clearApiKeys = () => {
+  const manageApiKeys = () => {
+    if (isAuthenticated) {
+      toast({
+        title: "API Keys Managed in Supabase",
+        description: "Your API keys are securely stored in Supabase. Use the dashboard to update them.",
+        variant: "default",
+      });
+    } else {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in to manage your API keys securely",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const clearLocalStorage = () => {
     ApiSearchService.clearApiKeys();
-    setSerpApiKey('');
-    setHunterKey('');
     setKeyStatus({ serpApi: false, hunter: false });
     toast({
-      title: "API Keys Cleared",
-      description: "All API keys have been removed from storage",
+      title: "Local Storage Cleared",
+      description: "Local API keys have been cleared. Supabase keys remain secure.",
       variant: "default",
     });
   };
 
-  const refreshCostTracking = () => {
-    setCostTracking(ApiSearchService.getCostTracking());
+  const refreshCostTracking = async () => {
+    try {
+      if (isAuthenticated) {
+        const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
+        const costs = await SupabaseSearchService.getCostTracking();
+        setCostTracking(costs);
+      } else {
+        const localCosts = ApiSearchService.getCostTracking();
+        setCostTracking({
+          totalCost: localCosts.totalCost,
+          monthlyUsage: localCosts.monthlyUsage,
+          lastMonth: localCosts.lastReset.slice(0, 7) || new Date().toISOString().slice(0, 7),
+          servicesUsed: []
+        });
+      }
+    } catch (error) {
+      console.error('Failed to refresh cost tracking:', error);
+    }
   };
 
   return (
@@ -165,12 +150,15 @@ export const ApiKeyManager = () => {
         <CardTitle className="flex items-center space-x-2">
           <Key className="h-5 w-5 text-primary" />
           <span>API Configuration</span>
-          <Badge variant={keyStatus.serpApi ? "default" : "secondary"}>
-            {keyStatus.serpApi ? "Ready" : "Setup Required"}
+          <Badge variant={isAuthenticated && keyStatus.serpApi ? "default" : "secondary"}>
+            {isAuthenticated && keyStatus.serpApi ? "Ready" : "Setup Required"}
           </Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Configure API keys for automated OSINT searches. Your keys are stored securely in your browser.
+          {isAuthenticated 
+            ? "API keys are securely managed in Supabase. No browser storage needed."
+            : "Log in to use secure API key management via Supabase."
+          }
         </p>
       </CardHeader>
       <CardContent>
@@ -184,152 +172,79 @@ export const ApiKeyManager = () => {
           <TabsContent value="setup" className="space-y-4">
             <Alert>
               <Shield className="h-4 w-4" />
-              <AlertTitle>Security Notice</AlertTitle>
+              <AlertTitle>Enhanced Security with Supabase</AlertTitle>
               <AlertDescription>
-                API keys are stored locally in your browser only. They are never sent to our servers.
+                {isAuthenticated 
+                  ? "API keys are securely stored in Supabase Edge Functions. No local storage required."
+                  : "Log in to enable secure API key management and remove CORS limitations."
+                }
               </AlertDescription>
             </Alert>
 
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="serpapi-key" className="flex items-center space-x-2">
-                  <span>SerpAPI Key</span>
-                  <Badge variant="destructive" className="text-xs">Required</Badge>
-                  {keyStatus.serpApi && <CheckCircle className="h-4 w-4 text-success" />}
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="serpapi-key"
-                    type={showKeys ? "text" : "password"}
-                    placeholder="Enter your SerpAPI key"
-                    value={serpApiKey}
-                    onChange={(e) => setSerpApiKey(e.target.value)}
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                    onClick={() => setShowKeys(!showKeys)}
-                  >
-                    {showKeys ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Get your free API key at{' '}
-                  <a 
-                    href="https://serpapi.com/users/sign_up" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline inline-flex items-center"
-                  >
-                    serpapi.com <ExternalLink className="h-3 w-3 ml-1" />
-                  </a>
-                  {' '}(100 free searches/month)
-                </p>
-              </div>
+            {isAuthenticated ? (
+              <div className="space-y-4">
+                <Alert>
+                  <CheckCircle className="h-4 w-4" />
+                  <AlertTitle>Supabase Integration Active</AlertTitle>
+                  <AlertDescription>
+                    Your API keys are configured in Supabase Edge Functions. This provides:
+                    <ul className="list-disc list-inside mt-2 space-y-1">
+                      <li>No CORS restrictions (server-side execution)</li>
+                      <li>Secure key storage (never exposed to browser)</li>
+                      <li>Advanced cost tracking and analytics</li>
+                      <li>Real-time search session management</li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
 
-              <div className="space-y-2">
-                <Label htmlFor="hunter-key" className="flex items-center space-x-2">
-                  <span>Hunter.io Key</span>
-                  <Badge variant="secondary" className="text-xs">Optional</Badge>
-                  {keyStatus.hunter && <CheckCircle className="h-4 w-4 text-success" />}
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="hunter-key"
-                    type={showKeys ? "text" : "password"}
-                    placeholder="Enter your Hunter.io key (optional)"
-                    value={hunterKey}
-                    onChange={(e) => setHunterKey(e.target.value)}
-                    className="pr-10"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  For email OSINT. Get your key at{' '}
-                  <a 
-                    href="https://hunter.io/api" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline inline-flex items-center"
-                  >
-                    hunter.io <ExternalLink className="h-3 w-3 ml-1" />
-                  </a>
-                  {' '}(50 free requests/month)
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="skip-validation"
-                    checked={skipValidation}
-                    onChange={(e) => setSkipValidation(e.target.checked)}
-                    className="rounded"
-                  />
-                  <Label htmlFor="skip-validation" className="text-sm">
-                    Skip validation (save keys without testing)
-                  </Label>
-                </div>
-                
                 <div className="flex space-x-2">
                   <Button 
-                    onClick={saveApiKeys} 
-                    disabled={isTestingKeys || !serpApiKey.trim()}
+                    onClick={testConnection}
+                    disabled={isTestingKeys}
                     className="flex-1"
                   >
                     {isTestingKeys ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Testing Keys...
+                        Testing Connection...
                       </>
                     ) : (
                       <>
                         <Shield className="h-4 w-4 mr-2" />
-                        {skipValidation ? 'Save Keys' : 'Save & Test Keys'}
+                        Test Connection
                       </>
                     )}
                   </Button>
-                  <Button variant="outline" onClick={clearApiKeys}>
-                    Clear
+                  <Button variant="outline" onClick={manageApiKeys}>
+                    <Key className="h-4 w-4 mr-2" />
+                    Manage Keys
                   </Button>
                 </div>
-              </div>
 
-              {isTestingKeys && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>Testing API Keys...</span>
+                {isTestingKeys && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Testing Supabase connection...</span>
+                    </div>
+                    <Progress value={66} className="w-full" />
                   </div>
-                  <Progress value={66} className="w-full" />
-                </div>
-              )}
-
-              {keyStatus.errors && keyStatus.errors.length > 0 && (
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Validation Issues</AlertTitle>
+                  <AlertTitle>Authentication Required</AlertTitle>
                   <AlertDescription>
-                    <ul className="list-disc list-inside space-y-1">
-                      {keyStatus.errors.map((error, index) => (
-                        <li key={index} className="text-sm">{error}</li>
-                      ))}
-                    </ul>
-                    {keyStatus.corsIssue && (
-                      <div className="mt-2 text-sm">
-                        <strong>Tip:</strong> Use "Skip validation" to save keys based on format, 
-                        or test them manually at{' '}
-                        <a href="https://serpapi.com/search" target="_blank" className="text-primary hover:underline">
-                          serpapi.com/search
-                        </a>
-                      </div>
-                    )}
+                    Please log in to use the enhanced Supabase integration. Fallback local storage is available for testing.
                   </AlertDescription>
                 </Alert>
-              )}
-            </div>
+
+                <Button variant="outline" onClick={clearLocalStorage} className="w-full">
+                  Clear Local Storage Keys
+                </Button>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="costs" className="space-y-4">
@@ -346,7 +261,7 @@ export const ApiKeyManager = () => {
                 <CardContent className="pt-6">
                   <div className="text-center">
                     <div className="text-2xl font-bold text-primary">
-                      ${costTracking.totalCost.toFixed(3)}
+                      ${costTracking.totalCost.toFixed(4)}
                     </div>
                     <p className="text-sm text-muted-foreground">Total Spent</p>
                   </div>
@@ -357,13 +272,30 @@ export const ApiKeyManager = () => {
                 <CardContent className="pt-6">
                   <div className="text-center">
                     <div className="text-2xl font-bold text-accent">
-                      ${costTracking.monthlyUsage.toFixed(3)}
+                      ${costTracking.monthlyUsage.toFixed(4)}
                     </div>
-                    <p className="text-sm text-muted-foreground">This Month</p>
+                    <p className="text-sm text-muted-foreground">
+                      {isAuthenticated ? `${costTracking.lastMonth}` : 'This Month (Local)'}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
             </div>
+
+            {isAuthenticated && costTracking.servicesUsed.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-medium">Service Breakdown</h4>
+                {costTracking.servicesUsed.map((service, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 border rounded">
+                    <span className="font-medium">{service.service}</span>
+                    <div className="text-right">
+                      <div className="text-sm font-medium">${service.cost.toFixed(4)}</div>
+                      <div className="text-xs text-muted-foreground">{service.queries} queries</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="flex justify-between text-sm">

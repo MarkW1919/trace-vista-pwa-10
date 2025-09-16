@@ -23,6 +23,7 @@ import { SearchResult, BaseEntity } from '@/types/entities';
 import { ConsentWarning } from '@/components/ConsentWarning';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { RealOSINTGuide } from '@/components/RealOSINTGuide';
+import { AuthComponent } from '@/components/AuthComponent';
 
 interface SearchFormData {
   name: string;
@@ -129,70 +130,68 @@ export const EnhancedBasicSearchTab = () => {
       
       // Check if automated search is enabled and API keys are available
       if (useAutomatedSearch) {
-        const { serpApiKey } = ApiSearchService.getApiKeys();
-        
-        if (!serpApiKey) {
-          toast({
-            title: "API Key Required",
-            description: "Please configure your SerpAPI key for automated searches",
-            variant: "destructive",
-          });
-          return;
-        }
-
         setSearchProgress(prev => ({
           ...prev,
-          phase: 'Automated API Search',
+          phase: 'Automated Supabase Search',
           progress: 10,
-          currentQuery: 'Initializing comprehensive search',
+          currentQuery: 'Initializing comprehensive search via Edge Function',
           completedQueries: 0
         }));
 
         try {
-          const apiResponse = await ApiSearchService.performComprehensiveSearch({
-            name: formData.name,
-            location: formData.city && formData.state ? `${formData.city}, ${formData.state}` : formData.city,
-            phone: formData.phone,
-            email: formData.email,
-            dob: formData.dob,
-            address: formData.address,
-          });
-
-          if (apiResponse.success) {
-            // Convert API results to SearchResult format
-            const convertedResults: SearchResult[] = apiResponse.results.map(result => ({
-              ...result,
-              type: 'name' as const,
-              value: formData.name, // Required by BaseEntity interface
-              query: `Automated search: ${formData.name}`,
-              extractedEntities: result.extractedEntities || []
-            }));
-            
-            allResults.push(...convertedResults);
-            totalSearchCost = apiResponse.cost;
-            setSearchCost(totalSearchCost);
-
-            setSearchProgress(prev => ({
-              ...prev,
-              phase: 'Processing API Results',
-              progress: 80,
-              currentQuery: `Found ${apiResponse.results.length} automated results`,
-              completedQueries: 1,
-              totalQueries: 1
-            }));
-
+          // Use Supabase search service instead of direct API calls
+          const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
+          const isAuthenticated = await SupabaseSearchService.isAuthenticated();
+          
+          if (!isAuthenticated) {
             toast({
-              title: "Automated Search Complete",
-              description: `Found ${apiResponse.results.length} results. Cost: $${totalSearchCost.toFixed(3)}`,
-              variant: "default",
+              title: "Authentication Required",
+              description: "Please log in to use automated searches with Supabase integration",
+              variant: "destructive",
             });
+            setUseAutomatedSearch(false);
           } else {
-            throw new Error(apiResponse.error || 'API search failed');
+            const apiResponse = await SupabaseSearchService.performComprehensiveSearch(
+              {
+                name: formData.name,
+                city: formData.city,
+                state: formData.state,
+                phone: formData.phone,
+                email: formData.email,
+                dob: formData.dob,
+                address: formData.address,
+              },
+              searchMode,
+              !!formData.email
+            );
+
+            if (apiResponse.success) {
+              allResults.push(...apiResponse.results);
+              totalSearchCost = apiResponse.cost;
+              setSearchCost(totalSearchCost);
+
+              setSearchProgress(prev => ({
+                ...prev,
+                phase: 'Processing Supabase Results',
+                progress: 80,
+                currentQuery: `Found ${apiResponse.results.length} automated results`,
+                completedQueries: 1,
+                totalQueries: 1
+              }));
+
+              toast({
+                title: "Supabase Search Complete",
+                description: `Found ${apiResponse.results.length} results. Cost: $${totalSearchCost.toFixed(4)} • Session: ${apiResponse.sessionId?.slice(-8)}`,
+                variant: "default",
+              });
+            } else {
+              throw new Error(apiResponse.error || 'Supabase search failed');
+            }
           }
         } catch (error) {
-          console.error('Automated search error:', error);
+          console.error('Supabase search error:', error);
           toast({
-            title: "Automated Search Failed",
+            title: "Supabase Search Failed",
             description: "Falling back to manual search URLs",
             variant: "destructive",
           });
@@ -343,6 +342,8 @@ export const EnhancedBasicSearchTab = () => {
     <div className="space-y-6">
       <ConsentWarning variant="prominent" />
       
+      <AuthComponent />
+      
       <ApiKeyManager />
       
       <Card className="border-primary/20">
@@ -396,8 +397,8 @@ export const EnhancedBasicSearchTab = () => {
                 )}
               </div>
               <p className="text-sm text-muted-foreground">
-                Use SerpAPI for real automated results instead of manual search links
-                {searchCost > 0 && ` • Last search cost: $${searchCost.toFixed(3)}`}
+                Use Supabase Edge Functions for real automated results without CORS restrictions
+                {searchCost > 0 && ` • Last search cost: $${searchCost.toFixed(4)}`}
               </p>
             </div>
             <Button
