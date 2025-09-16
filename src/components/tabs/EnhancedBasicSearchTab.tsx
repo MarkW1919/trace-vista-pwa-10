@@ -201,15 +201,24 @@ export const EnhancedBasicSearchTab = () => {
         }
       }
       
-      // Execute manual searches if automated search is disabled or failed
-      if (!useAutomatedSearch || allResults.length === 0) {
+      // Only fall back to manual search URLs if automated search is disabled AND no results from Supabase
+      if (!useAutomatedSearch && allResults.length === 0) {
+        setSearchProgress(prev => ({
+          ...prev,
+          phase: 'Manual Search URLs',
+          progress: 60,
+          currentQuery: 'Generating manual search links',
+          completedQueries: 0,
+          totalQueries: selectedQueries.length
+        }));
+
         for (let i = 0; i < selectedQueries.length; i++) {
           const dork = selectedQueries[i];
           
           setSearchProgress(prev => ({
             ...prev,
-            phase: `Searching ${dork.category}`,
-            progress: ((i + 1) / selectedQueries.length) * 80,
+            phase: `Generating ${dork.category} URLs`,
+            progress: 60 + ((i + 1) / selectedQueries.length) * 20,
             currentQuery: dork.description,
             completedQueries: i + 1
           }));
@@ -226,9 +235,16 @@ export const EnhancedBasicSearchTab = () => {
             });
             allResults.push(...searchResults);
           } catch (error) {
-            console.warn(`Real search failed for query: ${dork.query}`);
+            console.warn(`Manual search URL generation failed for query: ${dork.query}`);
           }
         }
+      } else if (useAutomatedSearch && allResults.length === 0) {
+        // If automated search was enabled but returned no results, show an error
+        toast({
+          title: "No Results Found",
+          description: "The automated search didn't return any results. This may be due to API limitations or the subject having minimal public presence.",
+          variant: "destructive",
+        });
       }
 
       // Process and enhance results
@@ -254,8 +270,8 @@ export const EnhancedBasicSearchTab = () => {
         }
       });
 
-      // Real data only - flag low results for educational discussion
-      dispatch({ type: 'SET_LOW_RESULTS', payload: allResults.length < 5 });
+          // Flag low results but prioritize real data over educational content
+          dispatch({ type: 'SET_LOW_RESULTS', payload: allResults.length < 3 && useAutomatedSearch });
 
       // Final processing
       setSearchProgress(prev => ({

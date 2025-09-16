@@ -110,12 +110,14 @@ serve(async (req) => {
     const queries = generateSearchQueries(searchRequest.searchParams, searchRequest.searchMode);
     console.log(`Generated ${queries.length} queries for ${searchRequest.searchMode} mode`);
 
-    // Perform SerpAPI searches
+    // Perform SerpAPI searches with location fallback
+    let retryWithoutLocation = false;
+    
     for (const query of queries) {
       try {
         console.log(`Executing query: ${query.query} (${query.category})`);
         
-        // More robust parameter handling
+        // More robust parameter handling with location fallback
         const searchParams = {
           engine: 'google',
           q: query.query,
@@ -125,7 +127,8 @@ serve(async (req) => {
           no_cache: 'true'
         };
         
-        if (searchRequest.location) {
+        // Add location if available and not already failed
+        if (searchRequest.location && !retryWithoutLocation) {
           searchParams.location = searchRequest.location;
         }
         
@@ -133,7 +136,7 @@ serve(async (req) => {
         
         console.log(`SerpAPI request for "${query.category}":`, {
           query: query.query,
-          location: searchRequest.location,
+          location: searchParams.location || 'no location',
           url: `https://serpapi.com/search?${params.toString().slice(0, 200)}...`
         });
 
@@ -141,6 +144,64 @@ serve(async (req) => {
         
         if (!response.ok) {
           const errorText = await response.text();
+          
+          // Check if error is location-related
+          if (errorText.includes('Unsupported') && errorText.includes('location') && searchRequest.location && !retryWithoutLocation) {
+            console.log(`Location "${searchRequest.location}" not supported, retrying without location...`);
+            retryWithoutLocation = true;
+            
+            // Retry this query without location
+            const paramsNoLocation = new URLSearchParams({
+              engine: 'google',
+              q: query.query,
+              api_key: serpApiKey,
+              num: '20',
+              safe: 'off',
+              no_cache: 'true'
+            });
+            
+            const retryResponse = await fetch(`https://serpapi.com/search?${paramsNoLocation}`);
+            
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              if (retryData.organic_results && retryData.organic_results.length > 0) {
+                // Process successful retry results
+                const results: SearchResult[] = retryData.organic_results.map((result: any, index: number) => {
+                  const confidence = calculateResultConfidence(result, query.query);
+                  const relevanceScore = calculateRelevanceScore(result, query.query);
+                  
+                  return {
+                    id: `serpapi-${Date.now()}-${index}`,
+                    title: result.title || 'No title',
+                    snippet: result.snippet || 'No snippet available',
+                    url: result.link || '#',
+                    source: `${result.displayed_link || 'Unknown'} (${query.category})`,
+                    confidence,
+                    relevanceScore,
+                    timestamp: new Date(),
+                    extractedEntities: []
+                  };
+                });
+
+                allResults.push(...results);
+                
+                const searchCost = 0.005;
+                totalCost += searchCost;
+
+                await supabase.from('api_cost_tracking').insert({
+                  user_id: user.id,
+                  service_name: 'SerpAPI',
+                  operation_type: query.category,
+                  cost: searchCost,
+                  queries_used: 1,
+                  session_id: session.id
+                });
+                
+                continue; // Success, continue to next query
+              }
+            }
+          }
+          
           console.error(`SerpAPI error for query "${query.query}":`, {
             status: response.status,
             statusText: response.statusText,
