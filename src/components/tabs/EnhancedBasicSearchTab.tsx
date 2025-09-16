@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -68,9 +68,31 @@ export const EnhancedBasicSearchTab = () => {
   const [searchMode, setSearchMode] = useState<'basic' | 'deep' | 'targeted'>('basic');
   const [useAutomatedSearch, setUseAutomatedSearch] = useState(false);
   const [searchCost, setSearchCost] = useState(0);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   
   const { dispatch } = useSkipTracing();
   const { toast } = useToast();
+
+  // Check authentication status on component mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
+        const authStatus = await SupabaseSearchService.isAuthenticated();
+        setIsAuthenticated(authStatus);
+        setUseAutomatedSearch(authStatus); // Auto-enable for authenticated users
+        setAuthChecked(true);
+        
+        console.log('Authentication status:', authStatus);
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        setAuthChecked(true);
+      }
+    };
+    
+    checkAuth();
+  }, []);
 
   const handleInputChange = (field: keyof SearchFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -129,85 +151,83 @@ export const EnhancedBasicSearchTab = () => {
       const allResults: SearchResult[] = [];
       let totalSearchCost = 0;
       
-      // Check if automated search is enabled and API keys are available
-      if (useAutomatedSearch) {
+      // For authenticated users, always use automated search via Edge Function
+      if (isAuthenticated && useAutomatedSearch) {
+        console.log('Using authenticated Edge Function search');
+        
         setSearchProgress(prev => ({
           ...prev,
-          phase: 'Automated Supabase Search',
+          phase: 'Automated Edge Function Search',
           progress: 10,
-          currentQuery: 'Initializing comprehensive search via Edge Function',
+          currentQuery: 'Calling Supabase Edge Function for real API results',
           completedQueries: 0
         }));
 
         try {
-          // Use Supabase search service instead of direct API calls
           const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
-          const isAuthenticated = await SupabaseSearchService.isAuthenticated();
           
-          if (!isAuthenticated) {
+          const apiResponse = await SupabaseSearchService.performComprehensiveSearch(
+            {
+              name: formData.name,
+              city: formData.city,
+              state: formData.state,
+              phone: formData.phone,
+              email: formData.email,
+              dob: formData.dob,
+              address: formData.address,
+            },
+            searchMode,
+            !!formData.email
+          );
+
+          if (apiResponse.success) {
+            allResults.push(...apiResponse.results);
+            totalSearchCost = apiResponse.cost;
+            setSearchCost(totalSearchCost);
+
+            setSearchProgress(prev => ({
+              ...prev,
+              phase: 'Processing Real API Results',
+              progress: 80,
+              currentQuery: `Found ${apiResponse.results.length} real results from APIs`,
+              completedQueries: 1,
+              totalQueries: 1
+            }));
+
             toast({
-              title: "Authentication Required",
-              description: "Please log in to use automated searches with Supabase integration",
-              variant: "destructive",
+              title: "Real API Search Complete",
+              description: `Found ${apiResponse.results.length} results from SerpAPI/Hunter.io. Cost: $${totalSearchCost.toFixed(4)}`,
+              variant: "default",
             });
-            setUseAutomatedSearch(false);
+            
+            console.log('Edge Function search successful:', {
+              resultCount: apiResponse.results.length,
+              cost: totalSearchCost,
+              sessionId: apiResponse.sessionId
+            });
           } else {
-            const apiResponse = await SupabaseSearchService.performComprehensiveSearch(
-              {
-                name: formData.name,
-                city: formData.city,
-                state: formData.state,
-                phone: formData.phone,
-                email: formData.email,
-                dob: formData.dob,
-                address: formData.address,
-              },
-              searchMode,
-              !!formData.email
-            );
-
-            if (apiResponse.success) {
-              allResults.push(...apiResponse.results);
-              totalSearchCost = apiResponse.cost;
-              setSearchCost(totalSearchCost);
-
-              setSearchProgress(prev => ({
-                ...prev,
-                phase: 'Processing Supabase Results',
-                progress: 80,
-                currentQuery: `Found ${apiResponse.results.length} automated results`,
-                completedQueries: 1,
-                totalQueries: 1
-              }));
-
-              toast({
-                title: "Supabase Search Complete",
-                description: `Found ${apiResponse.results.length} results. Cost: $${totalSearchCost.toFixed(4)} • Session: ${apiResponse.sessionId?.slice(-8)}`,
-                variant: "default",
-              });
-            } else {
-              throw new Error(apiResponse.error || 'Supabase search failed');
-            }
+            throw new Error(apiResponse.error || 'Edge Function search failed');
           }
         } catch (error) {
-          console.error('Supabase search error:', error);
+          console.error('Edge Function search error:', error);
           toast({
-            title: "Supabase Search Failed",
-            description: "Falling back to manual search URLs",
+            title: "API Search Failed", 
+            description: `Error: ${error.message}. Using educational content instead.`,
             variant: "destructive",
           });
-          // Fall back to manual search
-          setUseAutomatedSearch(false);
+          // Don't fall back to manual search for authenticated users - show the error
         }
       }
       
-      // Only fall back to manual search URLs if automated search is disabled AND no results from Supabase
-      if (!useAutomatedSearch && allResults.length === 0) {
+      // Only use educational content for non-authenticated users or when Edge Function fails
+      if (!isAuthenticated && allResults.length === 0) {
+        console.log('User not authenticated, showing educational content');
+        
         setSearchProgress(prev => ({
           ...prev,
-          phase: 'Manual Search URLs',
+          phase: 'Educational Content',
           progress: 60,
-          currentQuery: 'Generating manual search links',
+          currentQuery: 'Generating educational search examples (sign in for real results)',
           completedQueries: 0,
           totalQueries: selectedQueries.length
         }));
@@ -217,9 +237,9 @@ export const EnhancedBasicSearchTab = () => {
           
           setSearchProgress(prev => ({
             ...prev,
-            phase: `Generating ${dork.category} URLs`,
+            phase: `Educational ${dork.category} Examples`,
             progress: 60 + ((i + 1) / selectedQueries.length) * 20,
-            currentQuery: dork.description,
+            currentQuery: `${dork.description} (Educational - Sign in for real results)`,
             completedQueries: i + 1
           }));
 
@@ -238,11 +258,11 @@ export const EnhancedBasicSearchTab = () => {
             console.warn(`Manual search URL generation failed for query: ${dork.query}`);
           }
         }
-      } else if (useAutomatedSearch && allResults.length === 0) {
-        // If automated search was enabled but returned no results, show an error
+      } else if (isAuthenticated && allResults.length === 0) {
+        // If authenticated user got no results, show specific message
         toast({
-          title: "No Results Found",
-          description: "The automated search didn't return any results. This may be due to API limitations or the subject having minimal public presence.",
+          title: "No Real Results Found", 
+          description: "The Edge Function search didn't return any results. This may be due to API limitations, insufficient API credits, or the subject having minimal public presence.",
           variant: "destructive",
         });
       }
@@ -270,8 +290,8 @@ export const EnhancedBasicSearchTab = () => {
         }
       });
 
-          // Flag low results but prioritize real data over educational content
-          dispatch({ type: 'SET_LOW_RESULTS', payload: allResults.length < 3 && useAutomatedSearch });
+      // Flag low results for authenticated users only
+      dispatch({ type: 'SET_LOW_RESULTS', payload: allResults.length < 3 && isAuthenticated });
 
       // Final processing
       setSearchProgress(prev => ({
@@ -301,10 +321,10 @@ export const EnhancedBasicSearchTab = () => {
         currentQuery: `Found ${sortedResults.length} results with ${extractedEntities.length} entities`
       }));
 
-      if (!useAutomatedSearch) {
+      if (!isAuthenticated) {
         toast({
-          title: "Enhanced Search Complete",
-          description: `Found ${sortedResults.length} results across multiple sources`,
+          title: "Educational Search Complete",
+          description: `Showing ${sortedResults.length} educational examples. Sign in for real API results.`,
           variant: "default",
         });
       }
@@ -405,28 +425,36 @@ export const EnhancedBasicSearchTab = () => {
             </TabsContent>
           </Tabs>
 
-          {/* Automated Search Toggle */}
+          {/* Authentication Status */}
           <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
             <div className="space-y-1">
               <div className="flex items-center space-x-2">
-                <Zap className="h-4 w-4 text-primary" />
-                <span className="font-medium">Automated API Search</span>
-                {useAutomatedSearch && (
-                  <Badge variant="default" className="text-xs">Enabled</Badge>
+                {isAuthenticated ? (
+                  <>
+                    <Zap className="h-4 w-4 text-green-500" />
+                    <span className="font-medium">Real API Search Active</span>
+                    <Badge variant="default" className="text-xs bg-green-500">Authenticated</Badge>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                    <span className="font-medium">Educational Mode</span>
+                    <Badge variant="outline" className="text-xs">Not Authenticated</Badge>
+                  </>
                 )}
               </div>
               <p className="text-sm text-muted-foreground">
-                Use Supabase Edge Functions for real automated results without CORS restrictions
-                {searchCost > 0 && ` • Last search cost: $${searchCost.toFixed(4)}`}
+                {isAuthenticated ? (
+                  <>Real SerpAPI & Hunter.io results via Edge Function
+                  {searchCost > 0 && ` • Last search cost: $${searchCost.toFixed(4)}`}</>
+                ) : (
+                  'Sign in above to access real API searches with live data'
+                )}
               </p>
             </div>
-            <Button
-              variant={useAutomatedSearch ? "default" : "outline"}
-              size="sm"
-              onClick={() => setUseAutomatedSearch(!useAutomatedSearch)}
-            >
-              {useAutomatedSearch ? "Enabled" : "Enable"}
-            </Button>
+            {!authChecked && (
+              <Badge variant="outline" className="text-xs">Checking...</Badge>
+            )}
           </div>
 
           {/* Search Form */}
