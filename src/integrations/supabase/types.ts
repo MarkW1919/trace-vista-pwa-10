@@ -14,13 +14,202 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      api_cost_tracking: {
+        Row: {
+          cost: number
+          created_at: string
+          id: string
+          operation_type: string
+          queries_used: number | null
+          service_name: string
+          session_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          cost?: number
+          created_at?: string
+          id?: string
+          operation_type: string
+          queries_used?: number | null
+          service_name: string
+          session_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          cost?: number
+          created_at?: string
+          id?: string
+          operation_type?: string
+          queries_used?: number | null
+          service_name?: string
+          session_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_cost_tracking_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "search_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extracted_entities: {
+        Row: {
+          confidence: number | null
+          created_at: string
+          entity_type: string
+          entity_value: string
+          id: string
+          session_id: string | null
+          source_result_id: string | null
+          user_id: string | null
+          verified: boolean | null
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string
+          entity_type: string
+          entity_value: string
+          id?: string
+          session_id?: string | null
+          source_result_id?: string | null
+          user_id?: string | null
+          verified?: boolean | null
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string
+          entity_type?: string
+          entity_value?: string
+          id?: string
+          session_id?: string | null
+          source_result_id?: string | null
+          user_id?: string | null
+          verified?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_entities_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "search_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_entities_source_result_id_fkey"
+            columns: ["source_result_id"]
+            isOneToOne: false
+            referencedRelation: "search_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      search_results: {
+        Row: {
+          confidence: number | null
+          created_at: string
+          extracted_entities: Json | null
+          id: string
+          query_used: string | null
+          relevance_score: number | null
+          result_type: string
+          session_id: string
+          snippet: string | null
+          source: string
+          title: string
+          url: string | null
+          user_id: string | null
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string
+          extracted_entities?: Json | null
+          id?: string
+          query_used?: string | null
+          relevance_score?: number | null
+          result_type?: string
+          session_id: string
+          snippet?: string | null
+          source: string
+          title: string
+          url?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string
+          extracted_entities?: Json | null
+          id?: string
+          query_used?: string | null
+          relevance_score?: number | null
+          result_type?: string
+          session_id?: string
+          snippet?: string | null
+          source?: string
+          title?: string
+          url?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "search_results_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "search_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      search_sessions: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          search_mode: string
+          search_params: Json
+          status: string
+          total_cost: number | null
+          total_results: number | null
+          user_id: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          search_mode: string
+          search_params?: Json
+          status?: string
+          total_cost?: number | null
+          total_results?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          search_mode?: string
+          search_params?: Json
+          status?: string
+          total_cost?: number | null
+          total_results?: number | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      update_search_session_stats: {
+        Args: { session_uuid: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
