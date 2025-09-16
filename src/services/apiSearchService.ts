@@ -385,23 +385,29 @@ export class ApiSearchService {
     const results = { serpApi: false, hunter: false };
     const errors: string[] = [];
 
-    // SerpAPI key validation (typically 64 character hex string)
+    // SerpAPI key validation (more permissive - allows various formats)
     if (serpApiKey) {
-      if (serpApiKey.length < 32) {
-        errors.push('SerpAPI key appears too short (expected 32+ characters)');
-      } else if (!/^[a-fA-F0-9]+$/.test(serpApiKey)) {
-        errors.push('SerpAPI key should contain only hexadecimal characters (0-9, a-f)');
+      const trimmedKey = serpApiKey.trim();
+      if (trimmedKey.length < 20) {
+        errors.push('SerpAPI key appears too short (expected 20+ characters)');
+      } else if (trimmedKey.length > 200) {
+        errors.push('SerpAPI key appears too long (expected under 200 characters)');
+      } else if (!/^[a-zA-Z0-9_\-\.]+$/.test(trimmedKey)) {
+        errors.push('SerpAPI key contains invalid characters (only letters, numbers, hyphens, underscores, and dots allowed)');
       } else {
         results.serpApi = true;
       }
     }
 
-    // Hunter.io key validation (typically 40 character alphanumeric)
+    // Hunter.io key validation (typically alphanumeric)
     if (hunterKey) {
-      if (hunterKey.length < 32) {
-        errors.push('Hunter.io key appears too short (expected 32+ characters)');
-      } else if (!/^[a-zA-Z0-9]+$/.test(hunterKey)) {
-        errors.push('Hunter.io key should contain only alphanumeric characters');
+      const trimmedKey = hunterKey.trim();
+      if (trimmedKey.length < 20) {
+        errors.push('Hunter.io key appears too short (expected 20+ characters)');
+      } else if (trimmedKey.length > 200) {
+        errors.push('Hunter.io key appears too long (expected under 200 characters)');
+      } else if (!/^[a-zA-Z0-9_\-\.]+$/.test(trimmedKey)) {
+        errors.push('Hunter.io key contains invalid characters (only letters, numbers, hyphens, underscores, and dots allowed)');
       } else {
         results.hunter = true;
       }
