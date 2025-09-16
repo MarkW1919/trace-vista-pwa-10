@@ -17,6 +17,8 @@ import { generateGoogleDorks, generateSpecializedDorks, generateReverseQueries, 
 import { calculateRelevanceScore } from '@/utils/scoring';
 import { extractEntities } from '@/utils/entityExtraction';
 import { performRealWebSearch } from '@/utils/realWebSearch';
+import { ApiSearchService } from '@/services/apiSearchService';
+import { ApiKeyManager } from '@/components/ApiKeyManager';
 import { SearchResult, BaseEntity } from '@/types/entities';
 import { ConsentWarning } from '@/components/ConsentWarning';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
@@ -62,6 +64,8 @@ export const EnhancedBasicSearchTab = () => {
     completedQueries: 0
   });
   const [searchMode, setSearchMode] = useState<'basic' | 'deep' | 'targeted'>('basic');
+  const [useAutomatedSearch, setUseAutomatedSearch] = useState(false);
+  const [searchCost, setSearchCost] = useState(0);
   
   const { dispatch } = useSkipTracing();
   const { toast } = useToast();
@@ -121,32 +125,109 @@ export const EnhancedBasicSearchTab = () => {
       });
 
       const allResults: SearchResult[] = [];
+      let totalSearchCost = 0;
       
-      // Execute searches with progress tracking
-      for (let i = 0; i < selectedQueries.length; i++) {
-        const dork = selectedQueries[i];
+      // Check if automated search is enabled and API keys are available
+      if (useAutomatedSearch) {
+        const { serpApiKey } = ApiSearchService.getApiKeys();
         
+        if (!serpApiKey) {
+          toast({
+            title: "API Key Required",
+            description: "Please configure your SerpAPI key for automated searches",
+            variant: "destructive",
+          });
+          return;
+        }
+
         setSearchProgress(prev => ({
           ...prev,
-          phase: `Searching ${dork.category}`,
-          progress: ((i + 1) / selectedQueries.length) * 80,
-          currentQuery: dork.description,
-          completedQueries: i + 1
+          phase: 'Automated API Search',
+          progress: 10,
+          currentQuery: 'Initializing comprehensive search',
+          completedQueries: 0
         }));
 
         try {
-          const searchResults = await performRealWebSearch(dork.query, {
+          const apiResponse = await ApiSearchService.performComprehensiveSearch({
             name: formData.name,
-            city: formData.city,
-            state: formData.state,
+            location: formData.city && formData.state ? `${formData.city}, ${formData.state}` : formData.city,
             phone: formData.phone,
             email: formData.email,
             dob: formData.dob,
             address: formData.address,
           });
-          allResults.push(...searchResults);
+
+          if (apiResponse.success) {
+            // Convert API results to SearchResult format
+            const convertedResults: SearchResult[] = apiResponse.results.map(result => ({
+              ...result,
+              type: 'name' as const,
+              value: formData.name, // Required by BaseEntity interface
+              query: `Automated search: ${formData.name}`,
+              extractedEntities: result.extractedEntities || []
+            }));
+            
+            allResults.push(...convertedResults);
+            totalSearchCost = apiResponse.cost;
+            setSearchCost(totalSearchCost);
+
+            setSearchProgress(prev => ({
+              ...prev,
+              phase: 'Processing API Results',
+              progress: 80,
+              currentQuery: `Found ${apiResponse.results.length} automated results`,
+              completedQueries: 1,
+              totalQueries: 1
+            }));
+
+            toast({
+              title: "Automated Search Complete",
+              description: `Found ${apiResponse.results.length} results. Cost: $${totalSearchCost.toFixed(3)}`,
+              variant: "default",
+            });
+          } else {
+            throw new Error(apiResponse.error || 'API search failed');
+          }
         } catch (error) {
-          console.warn(`Real search failed for query: ${dork.query}`);
+          console.error('Automated search error:', error);
+          toast({
+            title: "Automated Search Failed",
+            description: "Falling back to manual search URLs",
+            variant: "destructive",
+          });
+          // Fall back to manual search
+          setUseAutomatedSearch(false);
+        }
+      }
+      
+      // Execute manual searches if automated search is disabled or failed
+      if (!useAutomatedSearch || allResults.length === 0) {
+        for (let i = 0; i < selectedQueries.length; i++) {
+          const dork = selectedQueries[i];
+          
+          setSearchProgress(prev => ({
+            ...prev,
+            phase: `Searching ${dork.category}`,
+            progress: ((i + 1) / selectedQueries.length) * 80,
+            currentQuery: dork.description,
+            completedQueries: i + 1
+          }));
+
+          try {
+            const searchResults = await performRealWebSearch(dork.query, {
+              name: formData.name,
+              city: formData.city,
+              state: formData.state,
+              phone: formData.phone,
+              email: formData.email,
+              dob: formData.dob,
+              address: formData.address,
+            });
+            allResults.push(...searchResults);
+          } catch (error) {
+            console.warn(`Real search failed for query: ${dork.query}`);
+          }
         }
       }
 
@@ -204,11 +285,13 @@ export const EnhancedBasicSearchTab = () => {
         currentQuery: `Found ${sortedResults.length} results with ${extractedEntities.length} entities`
       }));
 
-      toast({
-        title: "Enhanced Search Complete",
-        description: `Found ${sortedResults.length} results across multiple sources`,
-        variant: "default",
-      });
+      if (!useAutomatedSearch) {
+        toast({
+          title: "Enhanced Search Complete",
+          description: `Found ${sortedResults.length} results across multiple sources`,
+          variant: "default",
+        });
+      }
 
     } catch (error) {
       toast({
@@ -253,11 +336,14 @@ export const EnhancedBasicSearchTab = () => {
       totalQueries: 0,
       completedQueries: 0
     });
+    setSearchCost(0);
   };
 
   return (
     <div className="space-y-6">
       <ConsentWarning variant="prominent" />
+      
+      <ApiKeyManager />
       
       <Card className="border-primary/20">
         <CardHeader>
@@ -298,6 +384,30 @@ export const EnhancedBasicSearchTab = () => {
               Focused search using reverse lookups and legal/court record specialization
             </TabsContent>
           </Tabs>
+
+          {/* Automated Search Toggle */}
+          <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2">
+                <Zap className="h-4 w-4 text-primary" />
+                <span className="font-medium">Automated API Search</span>
+                {useAutomatedSearch && (
+                  <Badge variant="default" className="text-xs">Enabled</Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Use SerpAPI for real automated results instead of manual search links
+                {searchCost > 0 && ` • Last search cost: $${searchCost.toFixed(3)}`}
+              </p>
+            </div>
+            <Button
+              variant={useAutomatedSearch ? "default" : "outline"}
+              size="sm"
+              onClick={() => setUseAutomatedSearch(!useAutomatedSearch)}
+            >
+              {useAutomatedSearch ? "Enabled" : "Enable"}
+            </Button>
+          </div>
 
           {/* Search Form */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

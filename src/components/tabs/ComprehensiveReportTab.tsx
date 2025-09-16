@@ -10,9 +10,12 @@ import {
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { useToast } from '@/hooks/use-toast';
 import { calculateAccuracyMetrics, calculateConfidenceInterval } from '@/utils/scoring';
+import { ApiSearchService } from '@/services/apiSearchService';
 
 export const ComprehensiveReportTab = () => {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [useAutomatedSearch, setUseAutomatedSearch] = useState(false);
+  const [reportCost, setReportCost] = useState(0);
   const { state, dispatch } = useSkipTracing();
   const { toast } = useToast();
 
@@ -164,6 +167,11 @@ export const ComprehensiveReportTab = () => {
             <div className="flex items-center space-x-2">
               <ClipboardList className="h-5 w-5 text-success" />
               <span>Comprehensive Skip Tracing Report</span>
+              {useAutomatedSearch && reportCost > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  Cost: ${reportCost.toFixed(3)}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center space-x-2">
               <Button 
@@ -180,12 +188,42 @@ export const ComprehensiveReportTab = () => {
           </CardTitle>
           <p className="text-sm text-muted-foreground">
             Compile and analyze all search results with accuracy metrics and export capabilities
+            {useAutomatedSearch && " • API-powered automated analysis enabled"}
           </p>
         </CardHeader>
+        
+        {/* Automated Analysis Toggle */}
+        <CardContent className="pb-4">
+          <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                <span className="font-medium">Enhanced Analysis</span>
+                {useAutomatedSearch && (
+                  <Badge variant="default" className="text-xs">Active</Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Use AI-powered analysis for deeper insights and cross-referencing
+                {reportCost > 0 && ` • Analysis cost: $${reportCost.toFixed(3)}`}
+              </p>
+            </div>
+            <Button
+              variant={useAutomatedSearch ? "default" : "outline"}
+              size="sm"
+              onClick={() => setUseAutomatedSearch(!useAutomatedSearch)}
+            >
+              {useAutomatedSearch ? "Enhanced" : "Basic"}
+            </Button>
+          </div>
+        </CardContent>
+        
         {isGenerating && (
           <CardContent>
             <Progress value={66} className="w-full" />
-            <p className="text-sm text-muted-foreground mt-2">Analyzing data and generating insights...</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              {useAutomatedSearch ? "Performing enhanced AI analysis..." : "Analyzing data and generating insights..."}
+            </p>
           </CardContent>
         )}
       </Card>
