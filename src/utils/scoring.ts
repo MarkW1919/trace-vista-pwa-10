@@ -2,7 +2,7 @@ import { SearchResult, BaseEntity } from '@/types/entities';
 import { areSimilar, normalizeText } from './similarity';
 
 /**
- * Calculate relevance score based on keyword matches and context
+ * Calculate relevance score with enhanced skip tracing logic
  */
 export function calculateRelevanceScore(
   snippet: string, 
@@ -17,41 +17,83 @@ export function calculateRelevanceScore(
   let score = 0;
   const normalizedSnippet = normalizeText(snippet);
   
-  // Name matching (highest weight)
+  // Name matching with fuzzy logic (highest weight for skip tracing)
   const nameWords = normalizeText(searchParams.name).split(' ');
   nameWords.forEach(word => {
-    if (word.length > 2 && normalizedSnippet.includes(word)) {
-      score += 25;
+    if (word.length > 2) {
+      if (normalizedSnippet.includes(word)) {
+        score += 30; // Increased for skip tracing
+      }
+      // Fuzzy matching for slight variations
+      if (normalizedSnippet.includes(word.substring(0, word.length - 1))) {
+        score += 15;
+      }
     }
   });
   
-  // Location matching
+  // Geographic intelligence for skip tracing
   if (searchParams.city && normalizedSnippet.includes(normalizeText(searchParams.city))) {
-    score += 15;
+    score += 20; // Increased weight for location matching
   }
   if (searchParams.state && normalizedSnippet.includes(normalizeText(searchParams.state))) {
+    score += 15; // State matching
+  }
+  
+  // Skip tracing proximity logic for Oklahoma
+  if (searchParams.state === 'OK') {
+    const okNeighbors = ['caddo', 'durant', 'achille', 'bryan county', 'calera'];
+    if (okNeighbors.some(neighbor => normalizedSnippet.includes(neighbor))) {
+      score += 18; // High boost for neighboring cities in skip tracing
+    }
+  }
+  
+  // Contact info matching (critical for skip tracing)
+  if (searchParams.phone) {
+    const phoneDigits = searchParams.phone.replace(/\D/g, '');
+    if (normalizedSnippet.includes(phoneDigits) || normalizedSnippet.includes(searchParams.phone)) {
+      score += 25; // High boost for phone matches
+    }
+    // Area code matching
+    const areaCode = phoneDigits.substring(0, 3);
+    if (normalizedSnippet.includes(areaCode)) {
+      score += 10;
+    }
+  }
+  
+  if (searchParams.email && normalizedSnippet.includes(normalizeText(searchParams.email))) {
+    score += 25; // High boost for email matches
+  }
+  
+  // Skip tracing specific indicators
+  const skipTracingIndicators = [
+    'age', 'relatives', 'associates', 'previous address', 'current address',
+    'phone number', 'email address', 'property records', 'court records',
+    'voter registration', 'family members'
+  ];
+  
+  skipTracingIndicators.forEach(indicator => {
+    if (normalizedSnippet.includes(indicator)) {
+      score += 8; // Boost for skip tracing relevant content
+    }
+  });
+  
+  // Address patterns detection
+  if (normalizedSnippet.match(/\d+\s+[a-z\s]+(street|st|avenue|ave|road|rd|drive|dr|lane|ln)/)) {
+    score += 12; // Address found
+  }
+  
+  // Phone pattern detection
+  if (normalizedSnippet.match(/\(\d{3}\)\s?\d{3}-\d{4}/) || normalizedSnippet.match(/\d{3}-\d{3}-\d{4}/)) {
+    score += 15; // Phone number pattern found
+  }
+  
+  // Age pattern detection (important for person identification)
+  if (normalizedSnippet.match(/age\s+\d{2}/)) {
     score += 10;
   }
   
-  // Contact info matching
-  if (searchParams.phone && normalizedSnippet.includes(searchParams.phone.replace(/\D/g, ''))) {
-    score += 20;
-  }
-  if (searchParams.email && normalizedSnippet.includes(normalizeText(searchParams.email))) {
-    score += 20;
-  }
-  
-  // Keyword density bonus
-  const keywordDensity = calculateKeywordDensity(snippet, [
-    searchParams.name,
-    searchParams.city || '',
-    searchParams.state || ''
-  ].filter(Boolean));
-  
-  score += Math.min(keywordDensity * 2, 10);
-  
-  // Source credibility weighting
-  score += getSourceCredibilityBonus(snippet);
+  // Source credibility weighting with skip tracing focus
+  score += getSkipTracingSourceCredibilityBonus(snippet);
   
   return Math.min(score, 100);
 }
@@ -77,21 +119,48 @@ function calculateKeywordDensity(text: string, keywords: string[]): number {
 }
 
 /**
- * Get source credibility bonus based on URL patterns
+ * Get skip tracing specific source credibility bonus
  */
-function getSourceCredibilityBonus(snippet: string): number {
-  const credibleSources = [
-    'whitepages', 'spokeo', 'fastpeoplesearch', 'truepeoplesearch',
-    'familysearch', 'ancestry', 'findagrave', 'linkedin',
-    'facebook', 'twitter', 'instagram', 'gov', 'edu'
-  ];
-  
+function getSkipTracingSourceCredibilityBonus(snippet: string): number {
   const lowerSnippet = snippet.toLowerCase();
   
-  for (const source of credibleSources) {
-    if (lowerSnippet.includes(source)) {
-      return 5;
-    }
+  // Tier 1: Premium people search sites (highest credibility)
+  const tier1Sources = [
+    'truepeoplesearch', 'whitepages', 'spokeo', 'fastpeoplesearch',
+    'peoplesearchnow', 'truthfinder', 'beenverified', 'intelius'
+  ];
+  
+  // Tier 2: Social media and professional networks
+  const tier2Sources = [
+    'linkedin', 'facebook', 'twitter', 'instagram', 'myspace'
+  ];
+  
+  // Tier 3: Government and official records
+  const tier3Sources = [
+    'gov', 'edu', 'courthouse', 'county', 'clerk', 'records',
+    'property', 'voter', 'court', 'secretary of state'
+  ];
+  
+  // Tier 4: Genealogy and family sites
+  const tier4Sources = [
+    'ancestry', 'familysearch', 'findagrave', 'familytree',
+    'myheritage', 'geni'
+  ];
+  
+  for (const source of tier1Sources) {
+    if (lowerSnippet.includes(source)) return 15; // Highest boost
+  }
+  
+  for (const source of tier2Sources) {
+    if (lowerSnippet.includes(source)) return 12;
+  }
+  
+  for (const source of tier3Sources) {
+    if (lowerSnippet.includes(source)) return 10;
+  }
+  
+  for (const source of tier4Sources) {
+    if (lowerSnippet.includes(source)) return 8;
   }
   
   return 0;

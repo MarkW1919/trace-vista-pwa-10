@@ -235,37 +235,58 @@ function calculateNameConfidence(name: string, searchName?: string): number {
 }
 
 /**
- * Validate and enhance extracted entities
+ * Enhanced entity extraction specifically for skip tracing
  */
-export function validateEntity(entity: BaseEntity): BaseEntity {
-  let enhancedConfidence = entity.confidence;
-  
-  switch (entity.type) {
-    case 'phone':
-      // Additional phone validation
-      const areaCode = entity.value.match(/\((\d{3})\)/)?.[1];
-      if (areaCode && AREA_CODE_MAP[areaCode]) {
-        enhancedConfidence += 5;
-      }
-      break;
-      
-    case 'email':
-      // Check for suspicious patterns
-      if (entity.value.includes('noreply') || entity.value.includes('donotreply')) {
-        enhancedConfidence -= 20;
-      }
-      break;
-      
-    case 'address':
-      // Validate address format
-      if (!/\d/.test(entity.value)) {
-        enhancedConfidence -= 15;
-      }
-      break;
+export function extractSkipTracingEntities(
+  text: string, 
+  searchParams: {
+    name?: string;
+    city?: string;
+    state?: string;
+    phone?: string;
+    email?: string;
   }
+): BaseEntity[] {
+  const entities = extractEntities(text, {
+    searchName: searchParams.name,
+    searchLocation: searchParams.city
+  });
   
-  return {
-    ...entity,
-    confidence: Math.max(0, Math.min(100, enhancedConfidence)),
-  };
+  // Enhance entities with skip tracing context
+  return entities.map(entity => {
+    let enhancedConfidence = entity.confidence;
+    
+    // Boost confidence for entities matching search parameters
+    if (entity.type === 'phone' && searchParams.phone) {
+      const searchDigits = searchParams.phone.replace(/\D/g, '');
+      const entityDigits = entity.value.replace(/\D/g, '');
+      if (searchDigits === entityDigits) {
+        enhancedConfidence = Math.min(100, enhancedConfidence + 30);
+      } else if (searchDigits.substring(0, 3) === entityDigits.substring(0, 3)) {
+        enhancedConfidence = Math.min(100, enhancedConfidence + 15); // Same area code
+      }
+    }
+    
+    if (entity.type === 'email' && searchParams.email) {
+      if (entity.value.toLowerCase() === searchParams.email.toLowerCase()) {
+        enhancedConfidence = Math.min(100, enhancedConfidence + 25);
+      }
+    }
+    
+    if (entity.type === 'address' && (searchParams.city || searchParams.state)) {
+      const entityLower = entity.value.toLowerCase();
+      if (searchParams.city && entityLower.includes(searchParams.city.toLowerCase())) {
+        enhancedConfidence = Math.min(100, enhancedConfidence + 20);
+      }
+      if (searchParams.state && entityLower.includes(searchParams.state.toLowerCase())) {
+        enhancedConfidence = Math.min(100, enhancedConfidence + 15);
+      }
+    }
+    
+    return {
+      ...entity,
+      confidence: enhancedConfidence,
+      verified: enhancedConfidence >= 70
+    };
+  });
 }

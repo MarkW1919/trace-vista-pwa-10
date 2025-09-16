@@ -1,6 +1,135 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 
+// Entity extraction functions (inline for edge function compatibility)
+function extractEntitiesFromSearchResult(text: string, searchParams: any): any[] {
+  const entities: any[] = [];
+  
+  // Phone number extraction with enhanced patterns
+  const phoneRegex = /(\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g;
+  const phoneMatches = text.matchAll(phoneRegex);
+  for (const match of phoneMatches) {
+    const phone = `(${match[2]}) ${match[3]}-${match[4]}`;
+    entities.push({
+      type: 'phone',
+      value: phone,
+      confidence: calculatePhoneEntityConfidence(phone, searchParams)
+    });
+  }
+
+  // Email extraction
+  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+  const emailMatches = text.matchAll(emailRegex);
+  for (const match of emailMatches) {
+    entities.push({
+      type: 'email',
+      value: match[0],
+      confidence: calculateEmailEntityConfidence(match[0], searchParams)
+    });
+  }
+
+  // Address extraction with enhanced pattern
+  const addressRegex = /\d{1,5}\s+([A-Za-z\s]{1,50})\s+(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Circle|Cir|Way|Place|Pl)\b/gi;
+  const addressMatches = text.matchAll(addressRegex);
+  for (const match of addressMatches) {
+    entities.push({
+      type: 'address',
+      value: match[0],
+      confidence: calculateAddressEntityConfidence(match[0], searchParams)
+    });
+  }
+
+  // Age extraction
+  const ageRegex = /age\s+(\d{2})/gi;
+  const ageMatches = text.matchAll(ageRegex);
+  for (const match of ageMatches) {
+    entities.push({
+      type: 'age',
+      value: match[1],
+      confidence: 85
+    });
+  }
+
+  // Name extraction (relatives/associates)
+  const nameRegex = /\b[A-Z][a-z]+ [A-Z][a-z]+(?: [A-Z][a-z]+)?\b/g;
+  const nameMatches = text.matchAll(nameRegex);
+  for (const match of nameMatches) {
+    // Skip if it's the search name
+    if (searchParams.name && match[0].toLowerCase() !== searchParams.name.toLowerCase()) {
+      entities.push({
+        type: 'name',
+        value: match[0],
+        confidence: 60
+      });
+    }
+  }
+
+  return entities;
+}
+
+function calculatePhoneEntityConfidence(phone: string, searchParams: any): number {
+  let confidence = 60;
+  
+  // Format check
+  if (phone.match(/\(\d{3}\)\s\d{3}-\d{4}/)) confidence += 15;
+  
+  // Match with search phone
+  if (searchParams.phone) {
+    const searchDigits = searchParams.phone.replace(/\D/g, '');
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (searchDigits === phoneDigits) {
+      confidence += 30; // Exact match
+    } else if (searchDigits.substring(0, 3) === phoneDigits.substring(0, 3)) {
+      confidence += 15; // Same area code
+    }
+  }
+  
+  // Oklahoma area codes boost
+  const areaCode = phone.replace(/\D/g, '').substring(0, 3);
+  if (['580', '405', '918'].includes(areaCode) && searchParams.state === 'OK') {
+    confidence += 10;
+  }
+  
+  return Math.min(confidence, 100);
+}
+
+function calculateEmailEntityConfidence(email: string, searchParams: any): number {
+  let confidence = 65;
+  
+  // Exact match with search email
+  if (searchParams.email && email.toLowerCase() === searchParams.email.toLowerCase()) {
+    confidence += 30;
+  }
+  
+  // Domain analysis
+  const domain = email.split('@')[1];
+  const commonDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'];
+  if (!commonDomains.includes(domain.toLowerCase())) {
+    confidence += 10; // Custom domains often more reliable
+  }
+  
+  return Math.min(confidence, 100);
+}
+
+function calculateAddressEntityConfidence(address: string, searchParams: any): number {
+  let confidence = 50;
+  
+  // Location matching
+  if (searchParams.city && address.toLowerCase().includes(searchParams.city.toLowerCase())) {
+    confidence += 25;
+  }
+  if (searchParams.state && address.toLowerCase().includes(searchParams.state.toLowerCase())) {
+    confidence += 15;
+  }
+  
+  // Exact address match
+  if (searchParams.address && address.toLowerCase().includes(searchParams.address.toLowerCase())) {
+    confidence += 35;
+  }
+  
+  return Math.min(confidence, 100);
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -165,10 +294,13 @@ serve(async (req) => {
             if (retryResponse.ok) {
               const retryData = await retryResponse.json();
               if (retryData.organic_results && retryData.organic_results.length > 0) {
-                // Process successful retry results
+                // Process successful retry results with entity extraction
                 const results: SearchResult[] = retryData.organic_results.map((result: any, index: number) => {
-                  const confidence = calculateResultConfidence(result, query.query);
+                  const confidence = calculateResultConfidence(result, query.query, searchRequest.searchParams);
                   const relevanceScore = calculateRelevanceScore(result, query.query);
+                  
+                  // Extract entities from result content
+                  const extractedEntities = extractEntitiesFromSearchResult(`${result.title || ''} ${result.snippet || ''}`, searchRequest.searchParams);
                   
                   return {
                     id: `serpapi-${Date.now()}-${index}`,
@@ -179,7 +311,7 @@ serve(async (req) => {
                     confidence,
                     relevanceScore,
                     timestamp: new Date(),
-                    extractedEntities: []
+                    extractedEntities
                   };
                 });
 
@@ -229,10 +361,13 @@ serve(async (req) => {
           continue;
         }
 
-        // Process results
+        // Process results with enhanced entity extraction
         const results: SearchResult[] = (data.organic_results || []).map((result: any, index: number) => {
-          const confidence = calculateResultConfidence(result, query.query);
+          const confidence = calculateResultConfidence(result, query.query, searchRequest.searchParams);
           const relevanceScore = calculateRelevanceScore(result, query.query);
+          
+          // Extract entities from result content
+          const extractedEntities = extractEntitiesFromSearchResult(`${result.title || ''} ${result.snippet || ''}`, searchRequest.searchParams);
           
           return {
             id: `serpapi-${Date.now()}-${index}`,
@@ -243,7 +378,7 @@ serve(async (req) => {
             confidence,
             relevanceScore,
             timestamp: new Date(),
-            extractedEntities: []
+            extractedEntities
           };
         });
 
@@ -353,11 +488,14 @@ serve(async (req) => {
       })
       .eq('id', session.id);
 
-    // Remove duplicates and sort by relevance
+    // Remove duplicates and sort by skip tracing relevance
     const uniqueResults = deduplicateResults(allResults);
-    const sortedResults = uniqueResults.sort((a, b) => 
-      (b.confidence + b.relevanceScore) - (a.confidence + a.relevanceScore)
-    );
+    const sortedResults = uniqueResults.sort((a, b) => {
+      // Prioritize results with higher confidence + relevance + entity count
+      const aScore = a.confidence + a.relevanceScore + (a.extractedEntities?.length || 0) * 5;
+      const bScore = b.confidence + b.relevanceScore + (b.extractedEntities?.length || 0) * 5;
+      return bScore - aScore;
+    });
 
     console.log(`Search completed. Total results: ${sortedResults.length}, Cost: $${totalCost.toFixed(4)}`);
 
@@ -388,6 +526,21 @@ serve(async (req) => {
   }
 });
 
+// Geographic proximity data for skip tracing
+const GEOGRAPHIC_PROXIMITY = {
+  'OK': {
+    'Bryan County': ['Calera', 'Caddo', 'Durant', 'Achille', 'Cartwright', 'Colbert', 'Silo'],
+    'Atoka County': ['Atoka', 'Stringtown', 'Tushka'],
+    'Marshall County': ['Madill', 'Kingston', 'Lebanon'],
+  }
+};
+
+const AREA_CODE_REGIONS = {
+  '580': { state: 'OK', region: 'Southern Oklahoma', counties: ['Bryan', 'Atoka', 'Marshall', 'Carter'] },
+  '405': { state: 'OK', region: 'Central Oklahoma', counties: ['Canadian', 'Cleveland', 'Oklahoma'] },
+  '918': { state: 'OK', region: 'Eastern Oklahoma', counties: ['Tulsa', 'Creek', 'Rogers'] },
+};
+
 // Helper functions
 function generateSearchQueries(
   params: SearchRequest['searchParams'], 
@@ -396,67 +549,177 @@ function generateSearchQueries(
   const queries: Array<{ query: string; category: string }> = [];
   const { name, city, state, phone, email, address } = params;
 
-  // Basic identity searches - simplified queries to avoid issues
+  // Enhanced skip tracing queries with geographic intelligence
   queries.push({ query: name, category: 'Basic Identity' });
   queries.push({ query: `"${name}"`, category: 'Exact Name Match' });
   
+  // Geographic proximity searches for skip tracing
   if (city && state) {
     queries.push({ query: `${name} ${city} ${state}`, category: 'Location-based' });
-  } else if (city || state) {
-    queries.push({ query: `${name} ${city || state}`, category: 'Location-based' });
+    
+    // Add county-based searches for skip tracing
+    if (state === 'OK' && city === 'Calera') {
+      queries.push({ query: `${name} Bryan County Oklahoma`, category: 'County Search' });
+      queries.push({ query: `${name} Caddo Oklahoma`, category: 'Neighboring City' });
+      queries.push({ query: `${name} Durant Oklahoma`, category: 'Neighboring City' });
+    }
+    
+    // Add nearby cities for any location
+    const nearbySearches = generateNearbyCityQueries(name, city, state);
+    queries.push(...nearbySearches);
   }
 
-  // Contact information searches - use simpler formats
+  // Enhanced phone searches with area code intelligence
   if (phone) {
+    const areaCode = phone.substring(0, 3);
     queries.push({ query: phone, category: 'Phone Lookup' });
     queries.push({ query: `${name} ${phone}`, category: 'Name + Phone' });
+    
+    // Area code geographic search
+    if (AREA_CODE_REGIONS[areaCode]) {
+      const region = AREA_CODE_REGIONS[areaCode];
+      queries.push({ query: `${name} ${region.region}`, category: 'Area Code Region' });
+    }
   }
 
+  // Enhanced email and address searches
   if (email) {
     queries.push({ query: `${name} ${email}`, category: 'Name + Email' });
   }
 
-  // Social media searches - simplified
+  if (address) {
+    queries.push({ query: `${name} "${address}"`, category: 'Address Search' });
+    // Extract street name for broader search
+    const streetMatch = address.match(/\d+\s+(.+?)\s+(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct)/i);
+    if (streetMatch) {
+      queries.push({ query: `${name} "${streetMatch[1]}"`, category: 'Street Name Search' });
+    }
+  }
+
+  // Skip tracing specific searches
+  queries.push({ query: `${name} site:truepeoplesearch.com`, category: 'TruePeopleSearch' });
+  queries.push({ query: `${name} site:whitepages.com`, category: 'WhitePages' });
+  queries.push({ query: `${name} site:spokeo.com`, category: 'Spokeo' });
+  
+  // Social media searches - enhanced for skip tracing
   queries.push({ query: `${name} site:linkedin.com`, category: 'LinkedIn' });
   queries.push({ query: `${name} site:facebook.com`, category: 'Facebook' });
 
   if (mode === 'deep') {
-    // Additional deep search queries - simplified
-    queries.push({ query: `${name} site:twitter.com`, category: 'Twitter' });
-    queries.push({ query: `${name} company business work`, category: 'Professional' });
-    queries.push({ query: `${name} court record property`, category: 'Public Records' });
+    // Deep skip tracing searches
+    queries.push({ query: `${name} property records ${state}`, category: 'Property Records' });
+    queries.push({ query: `${name} voter registration ${state}`, category: 'Voter Records' });
+    queries.push({ query: `${name} court records ${state}`, category: 'Court Records' });
+    queries.push({ query: `${name} business license ${state}`, category: 'Business Records' });
+    
     if (address) {
-      queries.push({ query: `${name} ${address}`, category: 'Address Search' });
+      queries.push({ query: `${name} previous address history`, category: 'Address History' });
     }
   } else if (mode === 'targeted') {
-    // Targeted searches for specific use cases - simplified
-    queries.push({ query: `${name} arrest court legal`, category: 'Legal Records' });
-    queries.push({ query: `${name} property real estate deed`, category: 'Property Records' });
-    queries.push({ query: `${name} obituary death memorial`, category: 'Vital Records' });
+    // Targeted skip tracing searches
+    queries.push({ query: `${name} arrest records ${state}`, category: 'Legal Records' });
+    queries.push({ query: `${name} bankruptcy court ${state}`, category: 'Financial Records' });
+    queries.push({ query: `${name} obituary family ${state}`, category: 'Family Records' });
+    queries.push({ query: `${name} relatives associates`, category: 'Associates' });
   }
 
-  // Limit queries based on mode
-  const limits = { basic: 8, deep: 15, targeted: 12 };
+  // Limit queries based on mode but allow more for skip tracing
+  const limits = { basic: 12, deep: 20, targeted: 18 };
   return queries.slice(0, limits[mode]);
 }
 
-function calculateResultConfidence(result: any, query: string): number {
-  let confidence = 50; // Base confidence
-
-  // Title relevance
-  if (result.title && result.title.toLowerCase().includes(query.toLowerCase())) {
-    confidence += 20;
+function generateNearbyCityQueries(name: string, city: string, state: string): Array<{ query: string; category: string }> {
+  const queries: Array<{ query: string; category: string }> = [];
+  
+  // Oklahoma-specific neighboring cities for common skip tracing targets
+  const oklahomaNeighbors: Record<string, string[]> = {
+    'Calera': ['Caddo', 'Durant', 'Achille', 'Colbert'],
+    'Durant': ['Calera', 'Caddo', 'Bokchito', 'Cartwright'],
+    'Caddo': ['Calera', 'Atoka', 'Stringtown'],
+  };
+  
+  if (state === 'OK' && oklahomaNeighbors[city]) {
+    oklahomaNeighbors[city].forEach(neighbor => {
+      queries.push({ query: `${name} ${neighbor} OK`, category: 'Skip Trace Neighbor' });
+    });
   }
+  
+  return queries.slice(0, 3); // Limit neighboring city searches
+}
 
-  // Snippet relevance  
-  if (result.snippet && result.snippet.toLowerCase().includes(query.toLowerCase())) {
-    confidence += 15;
-  }
+function calculateResultConfidence(result: any, query: string, searchParams?: any): number {
+  let confidence = 30; // Lower base confidence for more selective results
 
-  // Domain authority (simplified)
+  const title = (result.title || '').toLowerCase();
+  const snippet = (result.snippet || '').toLowerCase();
+  const queryLower = query.toLowerCase();
   const domain = result.displayed_link || '';
-  if (domain.includes('linkedin.com') || domain.includes('facebook.com') || domain.includes('whitepages.com')) {
-    confidence += 10;
+
+  // Title relevance with skip tracing weighting
+  if (title.includes(queryLower)) confidence += 25;
+
+  // Snippet relevance with entity detection
+  if (snippet.includes(queryLower)) confidence += 20;
+
+  // Skip tracing domain authority (higher weighting for people search sites)
+  const skipTracingDomains = [
+    'truepeoplesearch.com', 'whitepages.com', 'spokeo.com', 'fastpeoplesearch.com',
+    'peoplesearchnow.com', 'truthfinder.com', 'beenverified.com', 'intelius.com'
+  ];
+  
+  const socialDomains = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com'];
+  const govDomains = ['gov', 'edu', 'courthouse', 'county'];
+
+  if (skipTracingDomains.some(d => domain.includes(d))) {
+    confidence += 20; // High boost for people search sites
+  } else if (socialDomains.some(d => domain.includes(d))) {
+    confidence += 15; // Medium boost for social media
+  } else if (govDomains.some(d => domain.includes(d))) {
+    confidence += 12; // Good boost for government sites
+  }
+
+  // Geographic proximity boost for skip tracing
+  if (searchParams) {
+    const { city, state, phone } = searchParams;
+    
+    // Location matching
+    if (city && (title.includes(city.toLowerCase()) || snippet.includes(city.toLowerCase()))) {
+      confidence += 15;
+    }
+    if (state && (title.includes(state.toLowerCase()) || snippet.includes(state.toLowerCase()))) {
+      confidence += 10;
+    }
+    
+    // Oklahoma-specific proximity boost
+    if (state === 'OK') {
+      const okCities = ['calera', 'caddo', 'durant', 'achille', 'bryan county'];
+      if (okCities.some(city => title.includes(city) || snippet.includes(city))) {
+        confidence += 12; // Proximity boost for Oklahoma cities
+      }
+    }
+    
+    // Phone area code matching
+    if (phone) {
+      const areaCode = phone.substring(0, 3);
+      if (snippet.includes(areaCode) || title.includes(areaCode)) {
+        confidence += 8;
+      }
+    }
+  }
+
+  // Age and address pattern detection
+  if (snippet.match(/age\s+\d{2}/i) || snippet.match(/\d{1,2}\/\d{1,2}\/\d{4}/)) {
+    confidence += 8; // Personal info indicators
+  }
+
+  // Address pattern detection
+  if (snippet.match(/\d+\s+[A-Za-z\s]+(street|st|avenue|ave|road|rd|drive|dr|lane|ln)/i)) {
+    confidence += 10; // Address found
+  }
+
+  // Phone number pattern detection
+  if (snippet.match(/\(\d{3}\)\s?\d{3}-\d{4}/) || snippet.match(/\d{3}-\d{3}-\d{4}/)) {
+    confidence += 12; // Phone number found
   }
 
   return Math.min(confidence, 100);
@@ -487,14 +750,27 @@ function calculateRelevanceScore(result: any, query: string): number {
   return Math.min(score, 100);
 }
 
+// Entity extraction from search results - remove duplicate function
+// (Already defined above as extractEntitiesFromSearchResult)
+
 function deduplicateResults(results: SearchResult[]): SearchResult[] {
   const seen = new Set<string>();
-  return results.filter(result => {
-    const key = `${result.title}-${result.url}`;
-    if (seen.has(key)) {
-      return false;
+  const unique: SearchResult[] = [];
+  
+  // Sort by confidence first to keep the highest quality duplicates
+  const sorted = results.sort((a, b) => (b.confidence + b.relevanceScore) - (a.confidence + a.relevanceScore));
+  
+  for (const result of sorted) {
+    // Create a more sophisticated deduplication key
+    const titleKey = result.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const urlKey = result.url.replace(/[^a-z0-9]/g, '');
+    const key = `${titleKey}-${urlKey}`;
+    
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(result);
     }
-    seen.add(key);
-    return true;
-  });
+  }
+  
+  return unique;
 }
