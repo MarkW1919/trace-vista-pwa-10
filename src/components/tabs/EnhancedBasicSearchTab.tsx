@@ -85,9 +85,29 @@ export const EnhancedBasicSearchTab = () => {
         setAuthChecked(true);
         
         console.log('Authentication status:', authStatus);
+        
+        // Show user feedback about authentication status
+        if (authStatus) {
+          toast({
+            title: "Authentication Verified",
+            description: "Real API search enabled. You'll get live results from SerpAPI and Hunter.io.",
+            variant: "default",
+          });
+        } else {
+          toast({
+            title: "Not Authenticated",
+            description: "Sign in above to access real API results. Currently showing educational examples.",
+            variant: "default",
+          });
+        }
       } catch (error) {
         console.error('Auth check failed:', error);
         setAuthChecked(true);
+        toast({
+          title: "Authentication Check Failed",
+          description: "Unable to verify login status. Please refresh and try again.",
+          variant: "destructive",
+        });
       }
     };
     
@@ -153,13 +173,13 @@ export const EnhancedBasicSearchTab = () => {
       
       // For authenticated users, always use automated search via Edge Function
       if (isAuthenticated && useAutomatedSearch) {
-        console.log('Using authenticated Edge Function search');
+        console.log('Using authenticated Edge Function search for real API results');
         
         setSearchProgress(prev => ({
           ...prev,
-          phase: 'Automated Edge Function Search',
+          phase: 'Real API Search',
           progress: 10,
-          currentQuery: 'Calling Supabase Edge Function for real API results',
+          currentQuery: 'Calling SerpAPI & Hunter.io via Edge Function for live results',
           completedQueries: 0
         }));
 
@@ -187,20 +207,20 @@ export const EnhancedBasicSearchTab = () => {
 
             setSearchProgress(prev => ({
               ...prev,
-              phase: 'Processing Real API Results',
+              phase: 'Processing Live Results',
               progress: 80,
-              currentQuery: `Found ${apiResponse.results.length} real results from APIs`,
+              currentQuery: `Processed ${apiResponse.results.length} real results from APIs`,
               completedQueries: 1,
               totalQueries: 1
             }));
 
             toast({
-              title: "Real API Search Complete",
-              description: `Found ${apiResponse.results.length} results from SerpAPI/Hunter.io. Cost: $${totalSearchCost.toFixed(4)}`,
+              title: "Live API Search Successful",
+              description: `Found ${apiResponse.results.length} real results. Cost: $${totalSearchCost.toFixed(4)}`,
               variant: "default",
             });
             
-            console.log('Edge Function search successful:', {
+            console.log('Live API search successful:', {
               resultCount: apiResponse.results.length,
               cost: totalSearchCost,
               sessionId: apiResponse.sessionId
@@ -209,13 +229,16 @@ export const EnhancedBasicSearchTab = () => {
             throw new Error(apiResponse.error || 'Edge Function search failed');
           }
         } catch (error) {
-          console.error('Edge Function search error:', error);
+          console.error('Live API search error:', error);
           toast({
             title: "API Search Failed", 
-            description: `Error: ${error.message}. Using educational content instead.`,
+            description: `Real API search failed: ${error.message}. Check API keys and connection.`,
             variant: "destructive",
           });
-          // Don't fall back to manual search for authenticated users - show the error
+          
+          // For authenticated users, don't fallback to educational content
+          // Just show the error and stop
+          throw error;
         }
       }
       

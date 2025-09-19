@@ -734,11 +734,11 @@ function parseDate(dateStr: string): string | null {
 export function crossReferenceEntities(entities: BaseEntity[]): BaseEntity[] {
   return entities.map(entity => {
     let enhancedConfidence = entity.confidence;
-    const metadata = { ...entity.metadata };
+    const metadata = { ...(entity.metadata || {}) };
     
     // Phone number cross-referencing
-    if (entity.type === 'phone' && entity.metadata?.areaCode) {
-      const areaCode = entity.metadata.areaCode;
+    if (entity.type === 'phone' && metadata?.areaCode) {
+      const areaCode = metadata.areaCode;
       const geoData = GEOGRAPHIC_DATA.areaCodeRegions[areaCode];
       if (geoData) {
         metadata.geographicRegion = geoData.region;
@@ -753,8 +753,9 @@ export function crossReferenceEntities(entities: BaseEntity[]): BaseEntity[] {
       const stateMatch = entity.value.match(/\b([A-Z]{2})\b/);
       if (stateMatch) {
         const stateCode = stateMatch[1];
-        const stateName = Object.keys(GEOGRAPHIC_DATA.stateAbbreviations).find(
-          key => GEOGRAPHIC_DATA.stateAbbreviations[key as keyof typeof GEOGRAPHIC_DATA.stateAbbreviations] === stateCode
+        const stateAbbrevs = GEOGRAPHIC_DATA.stateAbbreviations as Record<string, string>;
+        const stateName = Object.keys(stateAbbrevs).find(
+          key => stateAbbrevs[key] === stateCode
         );
         if (stateName) {
           metadata.stateName = stateName;

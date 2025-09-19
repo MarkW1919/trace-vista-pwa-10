@@ -6,6 +6,7 @@ export interface BaseEntity {
   source: string;
   timestamp: Date;
   verified?: boolean;
+  metadata?: Record<string, any>;
 }
 
 export type EntityType = 
@@ -25,7 +26,10 @@ export type EntityType =
   | 'voter'
   | 'court'
   | 'marriage'
-  | 'divorce';
+  | 'divorce'
+  | 'age'
+  | 'date'
+  | 'salary';
 
 export interface SearchResult extends BaseEntity {
   title: string;

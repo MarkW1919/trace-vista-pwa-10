@@ -747,15 +747,16 @@ function analyzeProximity(parsedAddress: any) {
   if (parsedAddress.state && parsedAddress.city) {
     const stateData = GEOGRAPHIC_DATABASE.states[parsedAddress.state];
     if (stateData) {
-      // Find county data
-      const countyData = Object.values(stateData.counties).find(county => 
-        county.majorCities.some(city => 
+      // Find county data with proper typing
+      const countyData = Object.values(stateData.counties).find((county: any) => 
+        county.majorCities && Array.isArray(county.majorCities) && 
+        county.majorCities.some((city: string) => 
           city.toLowerCase() === parsedAddress.city.toLowerCase()
         )
-      );
+      ) as { majorCities: string[]; seat: string } | undefined;
       
-      if (countyData) {
-        proximity.nearbyAddresses = countyData.majorCities.filter(city => 
+      if (countyData && countyData.majorCities && countyData.seat) {
+        proximity.nearbyAddresses = countyData.majorCities.filter((city: string) => 
           city.toLowerCase() !== parsedAddress.city.toLowerCase()
         ).slice(0, 3);
         
