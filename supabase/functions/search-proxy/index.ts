@@ -1,5 +1,13 @@
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
+
+// Import ScraperAPI helper functions (inline for edge function compatibility)
+import { 
+  generatePeopleSearchUrls, 
+  performScraperAPISearch, 
+  extractEntitiesFromScrapedContent 
+} from "./scraperapi-helpers-import.ts";
 
 // Entity extraction functions (inline for edge function compatibility)
 function extractEntitiesFromSearchResult(text: string, searchParams: any): any[] {
@@ -147,7 +155,7 @@ interface SearchRequest {
     dob?: string;
     address?: string;
   };
-  searchMode: 'basic' | 'deep' | 'targeted';
+  searchMode: 'basic' | 'deep' | 'targeted' | 'enhanced';
   useEmailOsint?: boolean;
 }
 
@@ -219,6 +227,7 @@ serve(async (req) => {
     // Get API keys from Supabase secrets
     const serpApiKey = Deno.env.get('SERPAPI_API_KEY');
     const hunterApiKey = Deno.env.get('HUNTER_API_KEY');
+    const scraperApiKey = Deno.env.get('SCRAPERAPI_API_KEY');
 
     if (!serpApiKey) {
       throw new Error('SerpAPI key not configured in Supabase secrets');
@@ -232,8 +241,16 @@ serve(async (req) => {
     console.log('API Keys status:', {
       serpApiAvailable: !!serpApiKey,
       serpApiLength: serpApiKey.length,
-      hunterApiAvailable: !!hunterApiKey
+      hunterApiAvailable: !!hunterApiKey,
+      scraperApiAvailable: !!scraperApiKey
     });
+
+    // Initialize ScraperAPI integration for enhanced data collection
+    const useScraperAPI = !!scraperApiKey && (searchRequest.searchMode === 'enhanced' || searchRequest.searchMode === 'targeted');
+    console.log(`ScraperAPI integration: ${useScraperAPI ? 'enabled' : 'disabled'} for mode: ${searchRequest.searchMode}`);
+
+    let scraperApiResults: SearchResult[] = [];
+    let scraperApiCost = 0;
 
     // Generate search queries based on mode
     const queries = generateSearchQueries(searchRequest.searchParams, searchRequest.searchMode);
@@ -406,6 +423,51 @@ serve(async (req) => {
       }
     }
 
+    // Perform ScraperAPI enhanced data collection
+    if (useScraperAPI && searchRequest.searchParams.name) {
+      console.log('Performing ScraperAPI enhanced data collection...');
+      
+      try {
+        // Generate targeted URLs for people search sites
+        const searchUrls = generatePeopleSearchUrls(searchRequest.searchParams);
+        
+        for (const { platform, url } of searchUrls.slice(0, 3)) { // Limit to 3 sites to control cost
+          try {
+            const scrapeResult = await performScraperAPISearch(url, platform, scraperApiKey);
+            
+            if (scrapeResult.success && scrapeResult.html) {
+              // Extract entities from scraped content
+              const extractedData = extractEntitiesFromScrapedContent(scrapeResult.html, platform, searchRequest.searchParams);
+              
+              if (extractedData.length > 0) {
+                scraperApiResults.push(...extractedData);
+                scraperApiCost += scrapeResult.cost || 0;
+
+                // Store ScraperAPI cost tracking
+                await supabase.from('api_cost_tracking').insert({
+                  user_id: user.id,
+                  service_name: 'ScraperAPI',
+                  operation_type: platform,
+                  cost: scrapeResult.cost || 0,
+                  queries_used: 1,
+                  session_id: session.id
+                });
+              }
+            }
+            
+            // Rate limiting between scrapes
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } catch (error) {
+            console.error(`ScraperAPI error for ${platform}:`, error);
+          }
+        }
+
+        console.log(`ScraperAPI enhanced collection completed. Results: ${scraperApiResults.length}, Cost: $${scraperApiCost.toFixed(4)}`);
+      } catch (error) {
+        console.error('ScraperAPI integration error:', error);
+      }
+    }
+
     // Perform email OSINT if requested and email is provided
     if (searchRequest.useEmailOsint && searchRequest.searchParams.email && hunterApiKey) {
       try {
@@ -450,11 +512,12 @@ serve(async (req) => {
       }
     }
 
-    // Store results in database
-    console.log(`Storing ${allResults.length} results in database...`);
+    // Store all results in database (SerpAPI + ScraperAPI)
+    const allSearchResults = [...allResults, ...scraperApiResults];
+    console.log(`Storing ${allSearchResults.length} results in database (SerpAPI: ${allResults.length}, ScraperAPI: ${scraperApiResults.length})...`);
     
-    if (allResults.length > 0) {
-      const resultsToInsert = allResults.map(result => ({
+    if (allSearchResults.length > 0) {
+      const resultsToInsert = allSearchResults.map(result => ({
         session_id: session.id,
         user_id: user.id,
         result_type: 'search',
@@ -477,19 +540,29 @@ serve(async (req) => {
       }
     }
 
-    // Update search session with final stats
+    // Update search session with final stats including ScraperAPI
+    const finalTotalCost = totalCost + scraperApiCost;
+    const finalResultCount = allResults.length + scraperApiResults.length;
+    
     await supabase
       .from('search_sessions')
       .update({
         status: 'completed',
-        total_results: allResults.length,
-        total_cost: totalCost,
-        completed_at: new Date().toISOString()
+        total_results: finalResultCount,
+        total_cost: finalTotalCost,
+        completed_at: new Date().toISOString(),
+        metadata: {
+          serpapi_results: allResults.length,
+          scraperapi_results: scraperApiResults.length,
+          scraperapi_enabled: useScraperAPI,
+          search_mode: searchRequest.searchMode
+        }
       })
       .eq('id', session.id);
 
-    // Remove duplicates and sort by skip tracing relevance
-    const uniqueResults = deduplicateResults(allResults);
+    // Combine and remove duplicates, then sort by skip tracing relevance
+    const combinedResults = [...allResults, ...scraperApiResults];
+    const uniqueResults = deduplicateResults(combinedResults);
     const sortedResults = uniqueResults.sort((a, b) => {
       // Prioritize results with higher confidence + relevance + entity count
       const aScore = a.confidence + a.relevanceScore + (a.extractedEntities?.length || 0) * 5;
@@ -497,7 +570,7 @@ serve(async (req) => {
       return bScore - aScore;
     });
 
-    console.log(`Search completed. Total results: ${sortedResults.length}, Cost: $${totalCost.toFixed(4)}`);
+    console.log(`Search completed. Total results: ${sortedResults.length}, SerpAPI Cost: $${totalCost.toFixed(4)}, ScraperAPI Cost: $${scraperApiCost.toFixed(4)}, Total Cost: $${(totalCost + scraperApiCost).toFixed(4)}`);
 
     return new Response(JSON.stringify({
       success: true,

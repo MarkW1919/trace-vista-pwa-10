@@ -19,12 +19,14 @@ import { extractEntities } from '@/utils/entityExtraction';
 import { performRealWebSearch } from '@/utils/realWebSearch';
 import { ApiSearchService } from '@/services/apiSearchService';
 import { ApiKeyManager } from '@/components/ApiKeyManager';
+import { ScraperAPIManager } from '@/components/ScraperAPIManager';
 import { SearchResult, BaseEntity } from '@/types/entities';
 import { ConsentWarning } from '@/components/ConsentWarning';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { RealOSINTGuide } from '@/components/RealOSINTGuide';
 import { AuthComponent } from '@/components/AuthComponent';
 import { ApiKeyTester } from '@/components/ApiKeyTester';
+import { SearchHistory } from '@/components/SearchHistory';
 
 interface SearchFormData {
   name: string;
@@ -65,7 +67,8 @@ export const EnhancedBasicSearchTab = () => {
     totalQueries: 0,
     completedQueries: 0
   });
-  const [searchMode, setSearchMode] = useState<'basic' | 'deep' | 'targeted'>('basic');
+  const [searchMode, setSearchMode] = useState<'basic' | 'deep' | 'targeted' | 'enhanced'>('basic');
+  const [hasScraperAPI, setHasScraperAPI] = useState(false);
   const [useAutomatedSearch, setUseAutomatedSearch] = useState(false);
   const [searchCost, setSearchCost] = useState(0);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -406,7 +409,11 @@ export const EnhancedBasicSearchTab = () => {
       
       <ApiKeyTester />
       
-      <ApiKeyManager />
+        {/* ScraperAPI Management */}
+        <ScraperAPIManager onApiKeyUpdate={setHasScraperAPI} />
+
+        {/* Search History */}
+        <SearchHistory />
       
       <Card className="border-primary/20">
         <CardHeader>
@@ -422,7 +429,7 @@ export const EnhancedBasicSearchTab = () => {
         <CardContent className="space-y-6">
           {/* Search Mode Selection */}
           <Tabs value={searchMode} onValueChange={(value) => setSearchMode(value as typeof searchMode)}>
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="basic" className="flex items-center space-x-2">
                 <Search className="h-4 w-4" />
                 <span>Basic</span>
@@ -435,6 +442,11 @@ export const EnhancedBasicSearchTab = () => {
                 <Target className="h-4 w-4" />
                 <span>Targeted</span>
               </TabsTrigger>
+              <TabsTrigger value="enhanced" className="flex items-center space-x-2">
+                <Shield className="h-4 w-4" />
+                <span>Enhanced</span>
+                {hasScraperAPI && <Badge variant="secondary" className="text-xs px-1">Pro</Badge>}
+              </TabsTrigger>
             </TabsList>
             
             <TabsContent value="basic" className="text-sm text-muted-foreground">
@@ -443,8 +455,12 @@ export const EnhancedBasicSearchTab = () => {
             <TabsContent value="deep" className="text-sm text-muted-foreground">
               Comprehensive search with 15+ queries including business records, genealogy, and deep social analysis
             </TabsContent>
-            <TabsContent value="targeted" className="text-sm text-muted-foreground">
-              Focused search using reverse lookups and legal/court record specialization
+            <TabsContent value="enhanced" className="text-sm text-muted-foreground">
+              {hasScraperAPI ? (
+                <span className="text-success">ScraperAPI enhanced mode with direct website scraping, CAPTCHA bypass, and residential proxies</span>
+              ) : (
+                <span className="text-warning">Requires ScraperAPI configuration for enhanced data collection</span>
+              )}
             </TabsContent>
           </Tabs>
 
