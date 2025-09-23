@@ -97,13 +97,6 @@ export type Database = {
             referencedRelation: "search_sessions"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "extracted_entities_source_result_id_fkey"
-            columns: ["source_result_id"]
-            isOneToOne: false
-            referencedRelation: "search_results"
-            referencedColumns: ["id"]
-          },
         ]
       }
       search_results: {
@@ -206,6 +199,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_stuck_sessions: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       update_search_session_stats: {
         Args: { session_uuid: string }
         Returns: undefined
