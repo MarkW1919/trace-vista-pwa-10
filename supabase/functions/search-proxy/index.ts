@@ -728,38 +728,6 @@ serve(async (req) => {
         }));
         console.log('🔍 Sample results structure:', JSON.stringify(debugInfo, null, 2));
       }
-        let totalStored = 0;
-        
-        for (let i = 0; i < allExtractedEntities.length; i += batchSize) {
-          const batch = allExtractedEntities.slice(i, i + batchSize);
-          
-          const { error: entitiesError, count } = await supabase
-            .from('extracted_entities')
-            .insert(batch);
-
-          if (entitiesError) {
-            console.error(`Error storing entity batch ${i}-${i + batch.length}:`, entitiesError);
-            console.error('Sample entity from failed batch:', JSON.stringify(batch[0], null, 2));
-          } else {
-            totalStored += batch.length;
-            console.log(`Successfully stored entity batch: ${batch.length} entities (total: ${totalStored})`);
-          }
-        }
-        
-        console.log(`ENTITY STORAGE COMPLETE: ${totalStored}/${allExtractedEntities.length} entities stored successfully`);
-      } else {
-        console.warn('No valid entities found to store - entity extraction may need improvement');
-        
-        // Debug: Check if results have extractedEntities
-        const resultsWithEntities = allSearchResults.filter(r => r.extractedEntities && r.extractedEntities.length > 0);
-        console.log(`Debug: ${resultsWithEntities.length} results have extractedEntities arrays`);
-        if (resultsWithEntities.length > 0) {
-          console.log('Sample result with entities:', JSON.stringify({
-            title: resultsWithEntities[0].title,
-            extractedEntities: resultsWithEntities[0].extractedEntities
-          }, null, 2));
-        }
-      }
     } else {
       console.warn('No search results to store');
     }
