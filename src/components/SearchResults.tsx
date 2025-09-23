@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ExternalLink, Phone, Mail, MapPin, User } from 'lucide-react';
+import { ExternalLink, Phone, Mail, MapPin, User, Search, TrendingUp } from 'lucide-react';
 
 interface SearchResult {
   id: string;
@@ -57,9 +57,24 @@ export const SearchResults = ({ results, isLoading }: SearchResultsProps) => {
 
   if (results.length === 0) {
     return (
-      <Card>
-        <CardContent className="pt-6 text-center">
-          <p className="text-muted-foreground">No results found. Try adjusting your search terms.</p>
+      <Card className="border-primary/20">
+        <CardContent className="pt-6 text-center space-y-4">
+          <div className="text-muted-foreground">
+            <Search className="mx-auto h-12 w-12 mb-4 opacity-50" />
+            <p className="text-lg font-medium mb-2">No Results Found</p>
+            <p className="text-sm">
+              This could mean the subject has minimal public presence or try adjusting search parameters.
+            </p>
+          </div>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p>💡 <strong>Pro Tips:</strong></p>
+            <ul className="text-left max-w-md mx-auto space-y-1">
+              <li>• Try different name variations or nicknames</li>
+              <li>• Add location information for better targeting</li>
+              <li>• Use Enhanced mode with ScraperAPI for deeper results</li>
+              <li>• Check if the subject has limited digital footprint</li>
+            </ul>
+          </div>
         </CardContent>
       </Card>
     );
@@ -67,37 +82,61 @@ export const SearchResults = ({ results, isLoading }: SearchResultsProps) => {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-2">
+          <TrendingUp className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">{results.length} Results Found</span>
+        </div>
+        <Badge variant="outline" className="text-xs">
+          Live API Data
+        </Badge>
+      </div>
+      
       {results.map((result) => (
-        <Card key={result.id} className="transition-all hover:shadow-md">
+        <Card key={result.id} className="transition-all hover:shadow-md border-primary/10 hover:border-primary/20">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between">
-              <CardTitle className="text-base line-clamp-2">
+              <CardTitle className="text-base line-clamp-2 leading-snug">
                 {result.title}
               </CardTitle>
-              <Badge variant="secondary" className="ml-2 flex-shrink-0">
-                {result.source}
-              </Badge>
+              <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
+                <Badge variant="secondary" className="text-xs">
+                  {result.source}
+                </Badge>
+                {(result as any).confidence && (
+                  <Badge 
+                    variant={(result as any).confidence >= 70 ? "default" : "outline"} 
+                    className="text-xs"
+                  >
+                    {(result as any).confidence}% match
+                  </Badge>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            <p className="text-sm text-muted-foreground line-clamp-3 mb-3">
+            <p className="text-sm text-muted-foreground line-clamp-3 mb-3 leading-relaxed">
               {result.snippet}
             </p>
             
             {result.entities && result.entities.length > 0 && (
-              <div className="mb-3">
-                <h4 className="text-sm font-medium mb-2">Extracted Entities:</h4>
+              <div className="mb-4 p-3 rounded-lg bg-muted/30 border">
+                <h4 className="text-xs font-semibold mb-2 text-primary flex items-center">
+                  <User className="h-3 w-3 mr-1" />
+                  Extracted Intelligence ({result.entities.length} items):
+                </h4>
                 <div className="flex flex-wrap gap-2">
                   {result.entities.map((entity, idx) => {
                     const Icon = entityIcons[entity.type];
+                    const confidence = Math.round(entity.confidence * 100);
                     return (
                       <div
                         key={idx}
-                        className={`inline-flex items-center space-x-1 rounded-full px-2 py-1 text-xs ${entityColors[entity.type]}`}
+                        className={`inline-flex items-center space-x-1 rounded-full px-3 py-1 text-xs font-medium ${entityColors[entity.type]} border`}
                       >
                         <Icon className="h-3 w-3" />
-                        <span>{entity.value}</span>
-                        <span className="opacity-70">({Math.round(entity.confidence * 100)}%)</span>
+                        <span className="max-w-[120px] truncate">{entity.value}</span>
+                        <span className="opacity-75 font-normal">({confidence}%)</span>
                       </div>
                     );
                   })}
@@ -105,18 +144,32 @@ export const SearchResults = ({ results, isLoading }: SearchResultsProps) => {
               </div>
             )}
             
-            <a
-              href={result.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center space-x-1 text-sm text-primary hover:underline"
-            >
-              <ExternalLink className="h-3 w-3" />
-              <span>View Source</span>
-            </a>
+            <div className="flex items-center justify-between">
+              <a
+                href={result.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center space-x-1 text-sm text-primary hover:text-primary/80 font-medium transition-colors"
+              >
+                <ExternalLink className="h-3 w-3" />
+                <span>Verify Source</span>
+              </a>
+              
+              {(result as any).relevanceScore && (
+                <div className="text-xs text-muted-foreground">
+                  Relevance: {Math.round((result as any).relevanceScore)}%
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       ))}
+      
+      <div className="text-center pt-4">
+        <p className="text-xs text-muted-foreground">
+          🔍 Results from live API searches • Always verify information accuracy • Respect privacy laws
+        </p>
+      </div>
     </div>
   );
 };

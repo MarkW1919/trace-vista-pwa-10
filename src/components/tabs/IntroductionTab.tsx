@@ -7,15 +7,30 @@ export const IntroductionTab = () => {
     <div className="space-y-6">
       <div className="text-center">
         <h2 className="text-3xl font-bold bg-gradient-hero bg-clip-text text-transparent mb-4">
-          Skip Tracing Educational Tool
+          Professional Skip Tracing & OSINT Platform
         </h2>
-        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-          Learn OSINT (Open Source Intelligence) techniques through hands-on experience with ethical skip tracing methods
+        <p className="text-lg text-muted-foreground max-w-3xl mx-auto leading-relaxed">
+          Industry-grade Open Source Intelligence (OSINT) and skip tracing platform using <strong>real APIs and live data</strong>. 
+          Built for professionals, investigators, and researchers who need accurate, comprehensive results.
         </p>
-        <Badge variant="outline" className="mt-4">
-          <Download className="mr-1 h-3 w-3" />
-          PWA Enabled - Install for offline access
-        </Badge>
+        <div className="flex flex-wrap justify-center gap-3 mt-6">
+          <Badge variant="default" className="bg-gradient-primary text-white px-3 py-1">
+            <Shield className="h-3 w-3 mr-1" />
+            Real APIs Only
+          </Badge>
+          <Badge variant="secondary" className="px-3 py-1">
+            <Eye className="h-3 w-3 mr-1" />
+            Professional Grade
+          </Badge>
+          <Badge variant="outline" className="px-3 py-1">
+            <Zap className="h-3 w-3 mr-1" />
+            Industry Methods
+          </Badge>
+          <Badge variant="outline" className="px-3 py-1">
+            <Download className="h-3 w-3 mr-1" />
+            PWA Enabled
+          </Badge>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -47,34 +62,34 @@ export const IntroductionTab = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-accent/5">
           <CardHeader>
             <CardTitle className="flex items-center">
-              <Zap className="mr-2 h-5 w-5 text-accent" />
-              Key Features
+              <Zap className="mr-2 h-5 w-5 text-primary" />
+              Platform Capabilities
             </CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2 text-sm">
               <li className="flex items-start">
-                <span className="mr-2 text-accent">•</span>
-                DuckDuckGo-powered web searches
+                <span className="mr-2 text-primary">🔥</span>
+                <strong>Live API Integration:</strong> SerpAPI, ScraperAPI, Hunter.io with real-time results
               </li>
               <li className="flex items-start">
-                <span className="mr-2 text-accent">•</span>
-                Social media profile discovery
+                <span className="mr-2 text-primary">🎯</span>
+                <strong>Advanced Entity Extraction:</strong> AI-powered confidence scoring and verification
               </li>
               <li className="flex items-start">
-                <span className="mr-2 text-accent">•</span>
-                Phone number validation and analysis
+                <span className="mr-2 text-primary">🔍</span>
+                <strong>Professional Search Modes:</strong> Basic, Deep, Targeted, Enhanced with ScraperAPI
               </li>
               <li className="flex items-start">
-                <span className="mr-2 text-accent">•</span>
-                Network relationship visualization
+                <span className="mr-2 text-primary">🛡️</span>
+                <strong>Secure Architecture:</strong> Supabase Edge Functions eliminate CORS restrictions
               </li>
               <li className="flex items-start">
-                <span className="mr-2 text-accent">•</span>
-                Progressive Web App capabilities
+                <span className="mr-2 text-primary">📊</span>
+                <strong>Comprehensive Analytics:</strong> Session tracking, cost monitoring, result persistence
               </li>
             </ul>
           </CardContent>
@@ -139,24 +154,27 @@ export const IntroductionTab = () => {
         </Card>
       </div>
 
-      <Card className="bg-gradient-primary text-white">
+      <Card className="bg-gradient-to-r from-primary/10 to-accent/10 border-primary/20">
         <CardContent className="pt-6">
           <div className="text-center">
-            <Users className="mx-auto h-12 w-12 mb-4 opacity-90" />
-            <h3 className="text-xl font-bold mb-2">Professional Tools Comparison</h3>
-            <p className="text-sm opacity-90 mb-4">
-              This educational tool demonstrates similar capabilities to professional platforms like Maltego, 
-              Shodan, and commercial skip tracing services - but using free, open-source alternatives.
+            <Users className="mx-auto h-12 w-12 mb-4 text-primary" />
+            <h3 className="text-xl font-bold mb-2">Professional-Grade Platform</h3>
+            <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
+              This platform uses the same methodologies and APIs as professional skip tracing companies and OSINT investigators.
+              Unlike educational simulations, all results are <strong>live data from real sources</strong>.
             </p>
             <div className="grid gap-4 md:grid-cols-3 text-sm">
-              <div>
-                <strong>Professional:</strong> Paid APIs, proprietary databases
+              <div className="p-3 rounded-lg bg-background/50">
+                <strong className="text-primary">Real APIs:</strong><br/>
+                SerpAPI, ScraperAPI, Hunter.io integration
               </div>
-              <div>
-                <strong>This Tool:</strong> Open source, educational focused
+              <div className="p-3 rounded-lg bg-background/50">
+                <strong className="text-accent">Live Data:</strong><br/>
+                No simulations, mock data, or placeholders
               </div>
-              <div>
-                <strong>Purpose:</strong> Learning and demonstration
+              <div className="p-3 rounded-lg bg-background/50">
+                <strong className="text-success">Professional:</strong><br/>
+                Industry-standard methodologies & tools
               </div>
             </div>
           </div>

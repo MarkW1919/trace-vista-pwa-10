@@ -181,30 +181,32 @@ export const AuthComponent = ({ className = '' }: AuthComponentProps) => {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Alert>
-            <Shield className="h-4 w-4" />
-            <AlertTitle>Enhanced Features Enabled</AlertTitle>
-            <AlertDescription>
-              Welcome back! You now have access to:
-              <ul className="list-disc list-inside mt-2 space-y-1">
-                <li>Secure API key management via Supabase</li>
-                <li>CORS-free automated searches</li>
-                <li>Persistent search history and results</li>
-                <li>Advanced cost tracking and analytics</li>
-              </ul>
-            </AlertDescription>
-          </Alert>
+            <Alert className="border-primary/20 bg-gradient-to-r from-primary/5 to-accent/5">
+              <Shield className="h-4 w-4 text-primary" />
+              <AlertTitle className="text-primary">Professional OSINT Suite Active</AlertTitle>
+              <AlertDescription>
+                🔥 <strong>Full access unlocked:</strong>
+                <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
+                  <li><strong>Real API Integration:</strong> Live SerpAPI, Hunter.io, and ScraperAPI access</li>
+                  <li><strong>Professional Entity Extraction:</strong> Advanced algorithms with confidence scoring</li>
+                  <li><strong>Secure Architecture:</strong> Edge functions eliminate CORS restrictions</li>
+                  <li><strong>Comprehensive Analytics:</strong> Session tracking and cost monitoring</li>
+                  <li><strong>Skip Tracing Database:</strong> Persistent results and entity verification</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
 
           <div className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2">
-                <Mail className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">{user.email}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Signed in • User ID: {user.id.slice(0, 8)}...
-              </p>
+          <div className="space-y-1">
+            <div className="flex items-center space-x-2">
+              <Mail className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">{user.email}</span>
+              <Badge variant="default" className="text-xs bg-gradient-primary">Premium</Badge>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Enhanced OSINT Active • ID: {user.id.slice(0, 8)}...
+            </p>
+          </div>
             <Button 
               variant="outline" 
               size="sm" 

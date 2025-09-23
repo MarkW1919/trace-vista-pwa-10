@@ -62,14 +62,14 @@ const Index = () => {
   return (
     <SkipTracingProvider>
       <div className="min-h-screen bg-background">
-        <header className="border-b bg-card/50 backdrop-blur supports-backdrop-blur:bg-card/50">
-          <div className="container mx-auto px-4 py-6">
+        <header className="border-b bg-card/80 backdrop-blur-sm supports-backdrop-blur:bg-card/80 sticky top-0 z-50">
+          <div className="container mx-auto px-4 py-4">
             <div className="text-center">
-              <h1 className="text-3xl font-bold bg-gradient-hero bg-clip-text text-transparent mb-2">
-                Real Data Skip Tracing Educational Tool
+              <h1 className="text-2xl md:text-3xl font-bold bg-gradient-hero bg-clip-text text-transparent mb-2">
+                Professional Skip Tracing & OSINT Platform
               </h1>
-              <p className="text-muted-foreground">
-                Professional OSINT techniques using only real public data - no simulations
+              <p className="text-sm md:text-base text-muted-foreground">
+                Real API integration • Professional methodologies • Live data extraction • Zero simulations
               </p>
             </div>
           </div>
@@ -90,11 +90,11 @@ const Index = () => {
         <footer className="border-t bg-muted/20 mt-16">
           <div className="container mx-auto px-4 py-8 text-center">
             <p className="text-sm text-muted-foreground">
-              Real Data Skip Tracing Educational Tool v5.0 | Real Data Only | 
-              <span className="ml-2">Progressive Web App Enabled</span>
+              Professional Skip Tracing Platform v6.0 • Real APIs • Live Data Extraction • 
+              <span className="ml-2 text-primary font-medium">Progressive Web App</span>
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              Real public data only - requires subject consent. Always use ethically and legally.
+              Professional OSINT platform using real APIs only. Always verify subject consent and use ethically.
             </p>
           </div>
         </footer>
