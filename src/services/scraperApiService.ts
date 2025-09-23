@@ -236,18 +236,23 @@ export class ScraperAPIService {
    */
   static async getCreditInfo(apiKey: string): Promise<CreditInfo | null> {
     try {
+      console.log('ScraperAPI: Fetching account info...');
       const response = await fetch(`${this.BASE_URL}/account?api_key=${apiKey}`);
       
       if (!response.ok) {
-        throw new Error('Failed to fetch credit info');
+        throw new Error(`Failed to fetch credit info: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
+      console.log('ScraperAPI account response:', data);
       
-      // ScraperAPI returns different properties based on account type
-      // Common properties: requestCount, requestLimit, concurrentRequests
-      const remaining = data.requestCount || data.remainingRequests || data.credits || 0;
-      const total = data.requestLimit || data.totalRequests || data.maxCredits || 0;
+      // FIXED: Calculate remaining credits correctly
+      // requestCount = requests used, requestLimit = total allowed
+      // remaining = total - used
+      const requestCount = data.requestCount || 0;
+      const requestLimit = data.requestLimit || data.totalRequests || data.maxCredits || 0;
+      const remaining = Math.max(0, requestLimit - requestCount);
+      const total = requestLimit;
       
       const creditInfo: CreditInfo = {
         remaining,
@@ -256,6 +261,14 @@ export class ScraperAPIService {
         dailyUsage: this.getDailyUsage(),
         monthlyUsage: this.getMonthlyUsage()
       };
+
+      console.log('ScraperAPI credit info calculated:', {
+        requestCount,
+        requestLimit, 
+        remaining,
+        total,
+        hasCredits: remaining > 0
+      });
 
       localStorage.setItem(this.CREDIT_STORAGE, JSON.stringify(creditInfo));
       return creditInfo;

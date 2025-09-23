@@ -35,6 +35,7 @@ serve(async (req) => {
     // Get API keys from Supabase secrets
     const serpApiKey = Deno.env.get('SERPAPI_API_KEY');
     const hunterApiKey = Deno.env.get('HUNTER_API_KEY');
+    const scraperApiKey = Deno.env.get('SCRAPERAPI_API_KEY');
 
     console.log('Testing API keys for user:', user.id);
 
@@ -49,6 +50,13 @@ serve(async (req) => {
       hunter: {
         available: !!hunterApiKey,
         keyLength: hunterApiKey?.length || 0,
+        valid: false,
+        error: null as string | null,
+        testResults: null as any
+      },
+      scraperApi: {
+        available: !!scraperApiKey,
+        keyLength: scraperApiKey?.length || 0,
         valid: false,
         error: null as string | null,
         testResults: null as any
@@ -135,13 +143,59 @@ serve(async (req) => {
       results.hunter.error = 'API key not found in Supabase secrets';
     }
 
+    // Test ScraperAPI
+    if (scraperApiKey) {
+      console.log('Testing ScraperAPI key...');
+      try {
+        const scraperResponse = await fetch(
+          `https://api.scraperapi.com/account?api_key=${scraperApiKey}`,
+          {
+            method: 'GET',
+            headers: {
+              'User-Agent': 'Supabase-Edge-Function/1.0'
+            }
+          }
+        );
+
+        const scraperData = await scraperResponse.json();
+        
+        if (scraperResponse.ok && !scraperData.error) {
+          results.scraperApi.valid = true;
+          
+          // Calculate remaining credits correctly
+          const requestCount = scraperData.requestCount || 0;
+          const requestLimit = scraperData.requestLimit || 0;
+          const remaining = Math.max(0, requestLimit - requestCount);
+          
+          results.scraperApi.testResults = {
+            status: scraperResponse.status,
+            requestCount,
+            requestLimit,
+            creditsRemaining: remaining,
+            hasCredits: remaining > 0
+          };
+          console.log('ScraperAPI test successful:', results.scraperApi.testResults);
+        } else {
+          results.scraperApi.error = scraperData.error || `HTTP ${scraperResponse.status}: ${scraperResponse.statusText}`;
+          console.error('ScraperAPI test failed:', results.scraperApi.error);
+        }
+      } catch (error) {
+        results.scraperApi.error = error instanceof Error ? error.message : 'Unknown error';
+        console.error('ScraperAPI test exception:', error);
+      }
+    } else {
+      results.scraperApi.error = 'API key not found in Supabase secrets';
+    }
+
     // Log comprehensive results
     console.log('API Key Test Results:', {
       serpApiValid: results.serpApi.valid,
       hunterValid: results.hunter.valid,
+      scraperApiValid: results.scraperApi.valid,
       errors: {
         serpApi: results.serpApi.error,
-        hunter: results.hunter.error
+        hunter: results.hunter.error,
+        scraperApi: results.scraperApi.error
       }
     });
 

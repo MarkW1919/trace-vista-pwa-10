@@ -45,17 +45,21 @@ export const ScraperAPIManager: React.FC<ScraperAPIManagerProps> = ({ onApiKeyUp
   const validateApiKey = async (key: string) => {
     setIsValidating(true);
     try {
+      console.log('Validating ScraperAPI key...');
       const result = await ScraperAPIService.testApiKey(key);
       setValidationResult(result);
       
       if (result.valid) {
         localStorage.setItem('scraperapi_key', key);
+        console.log('API key valid, fetching credit info...');
         const creditInfo = await ScraperAPIService.getCreditInfo(key);
         setCreditInfo(creditInfo);
+        console.log('Credit info updated:', creditInfo);
       }
       
-      onApiKeyUpdate?.(result.valid);
+      onApiKeyUpdate?.(result.valid && result.hasCredits);
     } catch (error) {
+      console.error('API key validation error:', error);
       setValidationResult({
         valid: false,
         error: 'Failed to validate API key'

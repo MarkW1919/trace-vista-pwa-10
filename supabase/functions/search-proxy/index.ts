@@ -183,8 +183,10 @@ async function checkScraperAPICredits(apiKey: string): Promise<{ hasCredits: boo
     const data = await response.json();
     console.log('ScraperAPI account data:', data);
     
-    // Fixed: ScraperAPI returns different properties - check all possible ones
-    const credits = data.concurrentRequests || data.requestsRemaining || data.requestCount || data.credits || data.balance || 0;
+    // FIXED: Calculate remaining credits correctly (requestLimit - requestCount)
+    const requestCount = data.requestCount || 0;
+    const requestLimit = data.requestLimit || 0;
+    const credits = Math.max(0, requestLimit - requestCount);
     
     return {
       hasCredits: credits > 0,
