@@ -18,43 +18,153 @@ export interface ScrapingResult {
 }
 
 /**
- * Generate people search URLs for ScraperAPI
+ * Generate comprehensive people search URLs for advanced skip tracing
  */
-export function generatePeopleSearchUrls(searchParams: any): { platform: string; url: string }[] {
-  const { name, city, state, phone, email } = searchParams;
+export function generatePeopleSearchUrls(searchParams: any): { platform: string; url: string; priority: number; credits: number }[] {
+  const { name, city, state, phone, email, address } = searchParams;
   const encodedName = encodeURIComponent(name);
-  const urls: { platform: string; url: string }[] = [];
+  const urls: { platform: string; url: string; priority: number; credits: number }[] = [];
 
-  // WhitePages
-  if (city && state) {
-    const location = `${city}-${state}`;
+  // Parse location components
+  let cityClean = city?.trim() || '';
+  let stateClean = state?.trim() || '';
+  
+  // Extract zip code if present in address
+  const zipMatch = address?.match(/\b\d{5}(-\d{4})?\b/) || [];
+  const zip = zipMatch[0] || '';
+
+  // HIGH PRIORITY SITES - Most likely to have comprehensive data
+
+  // WhitePages - Best accuracy for contact info
+  if (cityClean && stateClean) {
+    const locationSlug = `${cityClean.replace(/\s+/g, '-')}-${stateClean.replace(/\s+/g, '-')}`.toLowerCase();
     urls.push({
       platform: 'whitepages',
-      url: `https://www.whitepages.com/name/${encodedName}/${encodeURIComponent(location)}`
+      url: `https://www.whitepages.com/name/${encodedName}/${encodeURIComponent(locationSlug)}`,
+      priority: 1,
+      credits: 50 // Stealth mode for anti-detection
     });
   }
 
-  // Spokeo
-  urls.push({
-    platform: 'spokeo',
-    url: `https://www.spokeo.com/${encodedName}`
-  });
-
-  // TruePeopleSearch
-  if (city && state) {
+  // TruePeopleSearch - Excellent for current addresses
+  if (cityClean && stateClean) {
     urls.push({
       platform: 'truepeoplesearch',
-      url: `https://www.truepeoplesearch.com/results?name=${encodedName}&citystatezip=${encodeURIComponent(city + ' ' + state)}`
+      url: `https://www.truepeoplesearch.com/results?name=${encodedName}&citystatezip=${encodeURIComponent(`${cityClean} ${stateClean} ${zip}`.trim())}`,
+      priority: 1,
+      credits: 10 // Standard mode sufficient
     });
   }
 
-  // FastPeopleSearch
+  // FastPeopleSearch - Good for relatives and associates
+  if (cityClean && stateClean) {
+    urls.push({
+      platform: 'fastpeoplesearch',
+      url: `https://www.fastpeoplesearch.com/search/people/${encodedName}/${encodeURIComponent(`${cityClean}-${stateClean}`)}`,
+      priority: 1,
+      credits: 1 // Light mode works well
+    });
+  } else {
+    urls.push({
+      platform: 'fastpeoplesearch',
+      url: `https://www.fastpeoplesearch.com/search/people/${encodedName}`,
+      priority: 2,
+      credits: 1
+    });
+  }
+
+  // MEDIUM PRIORITY SITES - Good supplementary data
+
+  // Spokeo - Age, education, social profiles
+  if (cityClean && stateClean) {
+    urls.push({
+      platform: 'spokeo',
+      url: `https://www.spokeo.com/search?q=${encodedName}&g=${encodeURIComponent(`${cityClean} ${stateClean}`)}`,
+      priority: 2,
+      credits: 25 // Deep mode for better data extraction
+    });
+  } else {
+    urls.push({
+      platform: 'spokeo',
+      url: `https://www.spokeo.com/search?q=${encodedName}`,
+      priority: 3,
+      credits: 25
+    });
+  }
+
+  // BeenVerified - Criminal records, property history
+  if (cityClean && stateClean) {
+    urls.push({
+      platform: 'beenverified',
+      url: `https://www.beenverified.com/people/${encodedName}/${encodeURIComponent(`${cityClean}-${stateClean}`)}`,
+      priority: 2,
+      credits: 25
+    });
+  }
+
+  // PeopleFinders - Employment history, business connections
   urls.push({
-    platform: 'fastpeoplesearch',
-    url: `https://www.fastpeoplesearch.com/${encodedName}`
+    platform: 'peoplefinders',
+    url: `https://www.peoplefinders.com/people/${encodedName}${cityClean && stateClean ? `/${encodeURIComponent(`${cityClean}-${stateClean}`)}` : ''}`,
+    priority: 2,
+    credits: 25
   });
 
-  return urls;
+  // Intelius - Comprehensive background data
+  if (cityClean && stateClean) {
+    urls.push({
+      platform: 'intelius',
+      url: `https://www.intelius.com/people-search/${encodedName}/${encodeURIComponent(`${cityClean}-${stateClean}`)}`,
+      priority: 2,
+      credits: 25
+    });
+  }
+
+  // SPECIALIZED SEARCHES
+
+  // Phone number reverse lookup
+  if (phone) {
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+      urls.push({
+        platform: 'whitepages-reverse',
+        url: `https://www.whitepages.com/phone/${cleanPhone}`,
+        priority: 1,
+        credits: 50
+      });
+      
+      urls.push({
+        platform: 'truecaller',
+        url: `https://www.truecaller.com/search/us/${cleanPhone}`,
+        priority: 2,
+        credits: 10
+      });
+    }
+  }
+
+  // Email-based searches
+  if (email && email.includes('@')) {
+    urls.push({
+      platform: 'pipl-email',
+      url: `https://pipl.com/search/?q=${encodeURIComponent(email)}`,
+      priority: 2,
+      credits: 25
+    });
+  }
+
+  // Address-based searches
+  if (address && cityClean && stateClean) {
+    const encodedAddress = encodeURIComponent(address);
+    urls.push({
+      platform: 'property-search',
+      url: `https://www.realtor.com/realestateandhomes-search/${encodeURIComponent(`${cityClean}_${stateClean}`)}?search=${encodedAddress}`,
+      priority: 3,
+      credits: 10
+    });
+  }
+
+  // Sort by priority and return top results to manage costs
+  return urls.sort((a, b) => a.priority - b.priority).slice(0, 12);
 }
 
 /**
@@ -112,28 +222,69 @@ export async function performScraperAPISearch(
 }
 
 /**
- * Get platform-specific scraping configuration
+ * Get platform-specific scraping configuration optimized for skip tracing
  */
 function getPlatformConfig(platform: string): ScrapingConfig {
   const configs: Record<string, ScrapingConfig> = {
+    // HIGH-VALUE SITES - Use premium modes for best success rates
     whitepages: {
+      mode: 'stealth',        // Residential proxies + advanced anti-detection
+      renderJs: true,
+      premium: true,
+      country: 'US'
+    },
+    'whitepages-reverse': {
       mode: 'stealth',
       renderJs: true,
       premium: true,
       country: 'US'
     },
     spokeo: {
+      mode: 'deep',           // Premium proxies + JS rendering
+      renderJs: true,
+      premium: true
+    },
+    beenverified: {
+      mode: 'deep',
+      renderJs: true, 
+      premium: true
+    },
+    peoplefinders: {
       mode: 'deep',
       renderJs: true,
       premium: true
     },
+    intelius: {
+      mode: 'deep',
+      renderJs: true,
+      premium: true
+    },
+    
+    // MEDIUM-VALUE SITES - Standard mode with JS rendering
     truepeoplesearch: {
       mode: 'standard',
       renderJs: true,
       premium: false
     },
+    truecaller: {
+      mode: 'standard',
+      renderJs: true,
+      premium: false
+    },
+    'pipl-email': {
+      mode: 'standard',
+      renderJs: true,
+      premium: false
+    },
+    'property-search': {
+      mode: 'standard',
+      renderJs: true,
+      premium: false
+    },
+    
+    // COST-EFFECTIVE SITES - Light mode sufficient
     fastpeoplesearch: {
-      mode: 'light',
+      mode: 'light',          // Basic scraping, no JS needed
       renderJs: false,
       premium: false
     }
@@ -194,59 +345,151 @@ export function extractEntitiesFromScrapedContent(
 }
 
 /**
- * WhitePages specific data extraction
+ * WhitePages specific data extraction - Enhanced for comprehensive skip tracing
  */
 function extractFromWhitePages(html: string, searchParams: any): any[] {
   const results: any[] = [];
   
-  // Extract phone numbers
-  const phoneRegex = /\(\d{3}\)\s*\d{3}-\d{4}/g;
-  const phones = html.match(phoneRegex) || [];
+  // Enhanced phone number extraction - multiple formats
+  const phonePatterns = [
+    /\(\d{3}\)\s*\d{3}-\d{4}/g,                    // (555) 123-4567
+    /\d{3}-\d{3}-\d{4}/g,                          // 555-123-4567
+    /\d{3}\.\d{3}\.\d{4}/g,                        // 555.123.4567  
+    /\d{3}\s+\d{3}\s+\d{4}/g,                      // 555 123 4567
+    /\+?1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/g    // +1-555-123-4567
+  ];
   
-  phones.forEach((phone, index) => {
+  const allPhones = new Set<string>();
+  phonePatterns.forEach(pattern => {
+    const matches = html.match(pattern) || [];
+    matches.forEach(phone => allPhones.add(phone.trim()));
+  });
+
+  Array.from(allPhones).forEach((phone, index) => {
     results.push({
       id: `whitepages-phone-${Date.now()}-${index}`,
       type: 'phone',
       value: phone,
       title: `Phone from WhitePages: ${phone}`,
-      snippet: `Phone number found on WhitePages profile. High accuracy expected.`,
+      snippet: `Verified phone number from WhitePages. Current or recent contact information.`,
       url: 'https://www.whitepages.com',
       source: 'WhitePages (ScraperAPI)',
-      confidence: 85,
-      relevanceScore: 75,
+      confidence: 90,
+      relevanceScore: 85,
       timestamp: new Date(),
       query: `ScraperAPI: ${searchParams.name}`,
       extractedEntities: [{
         type: 'phone',
         value: phone,
-        confidence: 85
+        confidence: 90
       }]
     });
   });
 
-  // Extract addresses
-  const addressRegex = /\d+\s+[A-Za-z\s]+(?:St|Ave|Rd|Dr|Ln|Blvd|Ct|Way)[A-Za-z\s,]*\d{5}/g;
-  const addresses = html.match(addressRegex) || [];
-  
-  addresses.forEach((address, index) => {
+  // Enhanced address extraction - current and previous addresses
+  const addressPatterns = [
+    /\d+\s+[A-Za-z\s]+(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Ct|Court|Way|Pl|Place|Cir|Circle)[A-Za-z\s,#\d]*\d{5}(-\d{4})?/gi,
+    /(?:Current|Previous|Prior)\s*(?:Address|Residence)[:\s]*([^<\n]+(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Ct|Court|Way|Pl|Place)[^<\n]*\d{5})/gi
+  ];
+
+  const allAddresses = new Set<string>();
+  addressPatterns.forEach(pattern => {
+    const matches = html.match(pattern) || [];
+    matches.forEach(addr => {
+      const cleaned = addr.replace(/^(Current|Previous|Prior)\s*(?:Address|Residence)[:\s]*/i, '').trim();
+      if (cleaned.length > 10) allAddresses.add(cleaned);
+    });
+  });
+
+  Array.from(allAddresses).forEach((address, index) => {
+    const isCurrent = html.toLowerCase().includes('current') && html.toLowerCase().indexOf(address.toLowerCase()) > html.toLowerCase().indexOf('current');
     results.push({
       id: `whitepages-address-${Date.now()}-${index}`,
       type: 'address',
       value: address,
-      title: `Address from WhitePages: ${address}`,
-      snippet: `Address found on WhitePages profile. Property records may be available.`,
+      title: `${isCurrent ? 'Current' : 'Previous'} Address from WhitePages: ${address}`,
+      snippet: `${isCurrent ? 'Current residential' : 'Previous'} address found on WhitePages. Property ownership records may be available.`,
       url: 'https://www.whitepages.com',
       source: 'WhitePages (ScraperAPI)',
-      confidence: 80,
-      relevanceScore: 70,
+      confidence: isCurrent ? 85 : 75,
+      relevanceScore: isCurrent ? 80 : 70,
       timestamp: new Date(),
       query: `ScraperAPI: ${searchParams.name}`,
       extractedEntities: [{
         type: 'address',
         value: address,
+        confidence: isCurrent ? 85 : 75
+      }]
+    });
+  });
+
+  // Extract relatives and associates
+  const relativePatterns = [
+    /(?:Related to|Associates?|Family|Relatives?)[:\s]*([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/gi,
+    /(?:Lives with|Household members?)[:\s]*([A-Z][a-z]+\s+[A-Z][a-z]+)/gi
+  ];
+
+  const allRelatives = new Set<string>();
+  relativePatterns.forEach(pattern => {
+    const matches = html.match(pattern) || [];
+    matches.forEach(match => {
+      const nameMatch = match.match(/([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
+      if (nameMatch && nameMatch[1] !== searchParams.name) {
+        allRelatives.add(nameMatch[1]);
+      }
+    });
+  });
+
+  Array.from(allRelatives).forEach((relativeName, index) => {
+    results.push({
+      id: `whitepages-relative-${Date.now()}-${index}`,
+      type: 'relative',
+      value: relativeName,
+      title: `Related Person from WhitePages: ${relativeName}`,
+      snippet: `Family member or associate found on WhitePages. May share address or contact information.`,
+      url: 'https://www.whitepages.com',
+      source: 'WhitePages (ScraperAPI)',
+      confidence: 80,
+      relevanceScore: 75,
+      timestamp: new Date(),
+      query: `ScraperAPI: ${searchParams.name}`,
+      extractedEntities: [{
+        type: 'relative',
+        value: relativeName,
         confidence: 80
       }]
     });
+  });
+
+  // Extract age information
+  const agePattern = /(?:Age|Born)[:\s]*(\d{1,3})|(\d{1,3})\s*(?:years?\s*old|yrs?)/gi;
+  const ageMatches = html.match(agePattern) || [];
+  
+  ageMatches.forEach((match, index) => {
+    const ageMatch = match.match(/\d{1,3}/);
+    if (ageMatch) {
+      const age = parseInt(ageMatch[0]);
+      if (age >= 18 && age <= 120) {
+        results.push({
+          id: `whitepages-age-${Date.now()}-${index}`,
+          type: 'age',
+          value: age.toString(),
+          title: `Age from WhitePages: ${age}`,
+          snippet: `Age information from WhitePages profile. Useful for identity verification.`,
+          url: 'https://www.whitepages.com',
+          source: 'WhitePages (ScraperAPI)',
+          confidence: 75,
+          relevanceScore: 65,
+          timestamp: new Date(),
+          query: `ScraperAPI: ${searchParams.name}`,
+          extractedEntities: [{
+            type: 'age',
+            value: age.toString(),
+            confidence: 75
+          }]
+        });
+      }
+    }
   });
 
   return results;

@@ -232,7 +232,7 @@ export class ScraperAPIService {
   }
 
   /**
-   * Get current credit information
+   * Get current credit information - Fixed API response parsing
    */
   static async getCreditInfo(apiKey: string): Promise<CreditInfo | null> {
     try {
@@ -243,10 +243,16 @@ export class ScraperAPIService {
       }
 
       const data = await response.json();
+      
+      // ScraperAPI returns different properties based on account type
+      // Common properties: requestCount, requestLimit, concurrentRequests
+      const remaining = data.requestCount || data.remainingRequests || data.credits || 0;
+      const total = data.requestLimit || data.totalRequests || data.maxCredits || 0;
+      
       const creditInfo: CreditInfo = {
-        remaining: data.requestCount || 0,
-        total: data.requestLimit || 0,
-        resetDate: data.resetDate || new Date().toISOString(),
+        remaining,
+        total,
+        resetDate: data.resetDate || data.billingCycleEnd || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         dailyUsage: this.getDailyUsage(),
         monthlyUsage: this.getMonthlyUsage()
       };
@@ -392,61 +398,148 @@ export class ScraperAPIService {
   }
 
   /**
-   * Generate optimized search URLs for different platforms
+   * Generate comprehensive and optimized search URLs for skip tracing
    */
   static generateSearchUrls(
     name: string,
     location?: string,
     phone?: string,
     email?: string
-  ): { platform: string; url: string }[] {
+  ): { platform: string; url: string; priority: number }[] {
     const encodedName = encodeURIComponent(name);
-    const encodedLocation = location ? encodeURIComponent(location) : '';
-    const urls: { platform: string; url: string }[] = [];
+    const urls: { platform: string; url: string; priority: number }[] = [];
 
-    // WhitePages
+    // Parse location for better URL generation
+    let city = '', state = '', zip = '';
     if (location) {
+      const locationParts = location.split(',').map(s => s.trim());
+      city = locationParts[0] || '';
+      state = locationParts[1] || '';
+      // Check if there's a zip code in the location
+      const zipMatch = location.match(/\b\d{5}(-\d{4})?\b/);
+      zip = zipMatch ? zipMatch[0] : '';
+    }
+
+    // HIGH PRIORITY - Most reliable people search sites
+    
+    // WhitePages - Enhanced URL generation
+    if (city && state) {
+      const locationSlug = `${city.replace(/\s+/g, '-')}-${state.replace(/\s+/g, '-')}`.toLowerCase();
       urls.push({
         platform: 'whitepages',
-        url: `https://www.whitepages.com/name/${encodedName}/${encodedLocation}`
+        url: `https://www.whitepages.com/name/${encodedName}/${encodeURIComponent(locationSlug)}`,
+        priority: 1
+      });
+    }
+    
+    // TruePeopleSearch - Fixed URL format
+    if (city && state) {
+      urls.push({
+        platform: 'truepeoplesearch',
+        url: `https://www.truepeoplesearch.com/results?name=${encodedName}&citystatezip=${encodeURIComponent(`${city} ${state}`)}`,
+        priority: 1
       });
     }
 
-    // Spokeo
-    urls.push({
-      platform: 'spokeo',
-      url: `https://www.spokeo.com/${encodedName}`
-    });
-
-    // TruePeopleSearch
+    // FastPeopleSearch - Enhanced with location
     if (location) {
-      const [city, state] = location.split(',').map(s => s.trim());
-      if (city && state) {
-        urls.push({
-          platform: 'truepeoplesearch',
-          url: `https://www.truepeoplesearch.com/results?name=${encodedName}&citystatezip=${encodeURIComponent(city + ' ' + state)}`
-        });
-      }
+      urls.push({
+        platform: 'fastpeoplesearch',
+        url: `https://www.fastpeoplesearch.com/search/people/${encodedName}/${encodeURIComponent(city)}-${encodeURIComponent(state)}`,
+        priority: 1
+      });
+    } else {
+      urls.push({
+        platform: 'fastpeoplesearch',
+        url: `https://www.fastpeoplesearch.com/search/people/${encodedName}`,
+        priority: 2
+      });
     }
 
-    // FastPeopleSearch
+    // MEDIUM PRIORITY - Social media and professional networks
+
+    // Spokeo - Enhanced search
+    if (location) {
+      urls.push({
+        platform: 'spokeo',
+        url: `https://www.spokeo.com/search?q=${encodedName}&g=${encodeURIComponent(city + ' ' + state)}`,
+        priority: 2
+      });
+    } else {
+      urls.push({
+        platform: 'spokeo',
+        url: `https://www.spokeo.com/search?q=${encodedName}`,
+        priority: 3
+      });
+    }
+
+    // BeenVerified
+    if (city && state) {
+      urls.push({
+        platform: 'beenverified',
+        url: `https://www.beenverified.com/people/${encodedName}/${encodeURIComponent(city)}-${encodeURIComponent(state)}`,
+        priority: 2
+      });
+    }
+
+    // PeopleFinders
     urls.push({
-      platform: 'fastpeoplesearch',
-      url: `https://www.fastpeoplesearch.com/${encodedName}`
+      platform: 'peoplefinders',
+      url: `https://www.peoplefinders.com/people/${encodedName}`,
+      priority: 2
     });
 
-    // LinkedIn
+    // Intelius
+    if (location) {
+      urls.push({
+        platform: 'intelius',
+        url: `https://www.intelius.com/people-search/${encodedName}/${encodeURIComponent(city)}-${encodeURIComponent(state)}`,
+        priority: 2
+      });
+    }
+
+    // LinkedIn - Professional search
     urls.push({
       platform: 'linkedin',
-      url: `https://www.linkedin.com/search/results/people/?keywords=${encodedName}`
+      url: `https://www.linkedin.com/search/results/people/?keywords=${encodedName}${location ? `&origin=GLOBAL_SEARCH_HEADER&sid=*%3A*&geoUrn=${encodeURIComponent('["' + location + '"]')}` : ''}`,
+      priority: 3
     });
 
-    // Facebook (public search)
+    // LOW PRIORITY - Social media (lower skip tracing value)
+
+    // Facebook public search
     urls.push({
       platform: 'facebook',
-      url: `https://www.facebook.com/public/${encodedName}`
+      url: `https://www.facebook.com/public/${encodedName.replace(/\s+/g, '-')}`,
+      priority: 4
     });
 
-    return urls;
+    // Phone number specific searches if available
+    if (phone) {
+      const cleanPhone = phone.replace(/\D/g, '');
+      urls.push({
+        platform: 'truecaller',
+        url: `https://www.truecaller.com/search/us/${cleanPhone}`,
+        priority: 2
+      });
+      
+      urls.push({
+        platform: 'whitepages-reverse',
+        url: `https://www.whitepages.com/phone/${cleanPhone}`,
+        priority: 1
+      });
+    }
+
+    // Email specific searches if available
+    if (email) {
+      urls.push({
+        platform: 'pipl-email',
+        url: `https://pipl.com/search/?q=${encodeURIComponent(email)}`,
+        priority: 2
+      });
+    }
+
+    // Sort by priority (lower number = higher priority)
+    return urls.sort((a, b) => a.priority - b.priority);
   }
 }

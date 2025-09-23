@@ -171,7 +171,29 @@ interface SearchResult {
   extractedEntities?: any[];
 }
 
-serve(async (req) => {
+// Enhanced ScraperAPI credit checking function
+async function checkScraperAPICredits(apiKey: string): Promise<{ hasCredits: boolean; credits: number; error?: string }> {
+  try {
+    const response = await fetch(`https://api.scraperapi.com/account?api_key=${apiKey}`);
+    
+    if (!response.ok) {
+      return { hasCredits: false, credits: 0, error: `API request failed: ${response.status}` };
+    }
+
+    const data = await response.json();
+    
+    // ScraperAPI returns different properties based on account type
+    const credits = data.requestCount || data.remainingRequests || data.credits || 0;
+    
+    return {
+      hasCredits: credits > 0,
+      credits: credits
+    };
+  } catch (error) {
+    console.error('Error checking ScraperAPI credits:', error);
+    return { hasCredits: false, credits: 0, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
