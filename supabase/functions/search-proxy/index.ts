@@ -171,22 +171,32 @@ interface SearchResult {
   extractedEntities?: any[];
 }
 
-// Enhanced ScraperAPI credit checking function
+// Enhanced ScraperAPI credit checking function with retry logic
 async function checkScraperAPICredits(apiKey: string): Promise<{ hasCredits: boolean; credits: number; error?: string }> {
   try {
-    const response = await fetch(`https://api.scraperapi.com/account?api_key=${apiKey}`);
+    console.log('Checking ScraperAPI credits...');
+    
+    const response = await fetch(`https://api.scraperapi.com/account?api_key=${apiKey}`, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Skip-Tracing-App/1.0'
+      }
+    });
     
     if (!response.ok) {
+      console.error(`ScraperAPI account check failed: ${response.status} ${response.statusText}`);
       return { hasCredits: false, credits: 0, error: `API request failed: ${response.status}` };
     }
 
     const data = await response.json();
-    console.log('ScraperAPI account data:', data);
+    console.log('ScraperAPI account data:', JSON.stringify(data, null, 2));
     
     // FIXED: Calculate remaining credits correctly (requestLimit - requestCount)
     const requestCount = data.requestCount || 0;
     const requestLimit = data.requestLimit || 0;
     const credits = Math.max(0, requestLimit - requestCount);
+    
+    console.log(`ScraperAPI Credits: ${credits} remaining (${requestCount}/${requestLimit} used)`);
     
     return {
       hasCredits: credits > 0,
@@ -589,35 +599,135 @@ serve(async (req) => {
         console.log(`Successfully stored ${resultsToInsert.length} search results`);
       }
 
+      console.log(`🔍 ENTITY EXTRACTION DEBUG:`);
+      console.log(`- Search results found: ${allSearchResults.length}`);
+      console.log(`- ScraperAPI results found: ${scraperApiResults.length}`);
+      
       // ENHANCED: Store extracted entities in dedicated table for comprehensive skip tracing
       const allExtractedEntities: any[] = [];
+      
+      // Process search results entities
       allSearchResults.forEach((result, resultIndex) => {
+        console.log(`Processing result ${resultIndex}: "${result.title?.substring(0, 50)}..."`);
+        console.log(`- Has extractedEntities: ${!!result.extractedEntities}`);
+        console.log(`- Entity count: ${result.extractedEntities?.length || 0}`);
+        
         if (result.extractedEntities && result.extractedEntities.length > 0) {
           result.extractedEntities.forEach((entity: any, entityIndex: number) => {
             if (entity && entity.type && entity.value) {  // Validate entity structure
-              allExtractedEntities.push({
+              const cleanedEntity = {
                 session_id: session.id,
                 user_id: user.id,
                 entity_type: entity.type,
                 entity_value: entity.value.toString().trim(),  // Ensure string and trim
                 confidence: Math.max(1, Math.min(100, entity.confidence || 60)),  // Ensure valid confidence range
                 verified: false,
-                source_result_id: `${session.id}-${resultIndex}-${entityIndex}`
-              });
+                source_result_id: `search-${session.id}-${resultIndex}-${entityIndex}`
+              };
+              allExtractedEntities.push(cleanedEntity);
+              console.log(`✅ Added entity: ${entity.type} = "${entity.value}" (confidence: ${entity.confidence})`);
             } else {
-              console.warn(`Invalid entity structure skipped:`, entity);
+              console.warn(`❌ Invalid entity structure skipped:`, entity);
+            }
+          });
+        } else {
+          // Debug: Check if extraction was attempted
+          const resultText = `${result.title || ''} ${result.snippet || ''}`;
+          console.log(`⚠️ No entities found in result with ${resultText.length} chars of text`);
+          
+          // Test manual extraction for debugging
+          const testEntities = extractEntitiesFromSearchResult(resultText, searchRequest.searchParams);
+          console.log(`🧪 Manual extraction test found ${testEntities.length} entities:`, testEntities.slice(0, 3));
+        }
+      });
+      
+      // Process ScraperAPI results entities
+      scraperApiResults.forEach((result, resultIndex) => {
+        console.log(`Processing ScraperAPI result ${resultIndex}: "${result.title?.substring(0, 50)}..."`);
+        if (result.extractedEntities && result.extractedEntities.length > 0) {
+          result.extractedEntities.forEach((entity: any, entityIndex: number) => {
+            if (entity && entity.type && entity.value) {
+              const cleanedEntity = {
+                session_id: session.id,
+                user_id: user.id,
+                entity_type: entity.type,
+                entity_value: entity.value.toString().trim(),
+                confidence: Math.max(1, Math.min(100, entity.confidence || 70)),
+                verified: false,
+                source_result_id: `scraper-${session.id}-${resultIndex}-${entityIndex}`
+              };
+              allExtractedEntities.push(cleanedEntity);
+              console.log(`✅ Added ScraperAPI entity: ${entity.type} = "${entity.value}"`);
             }
           });
         }
       });
 
-      console.log(`Found ${allExtractedEntities.length} entities to store from ${allSearchResults.length} results`);
+      console.log(`📊 ENTITY SUMMARY: Found ${allExtractedEntities.length} entities to store from ${allSearchResults.length + scraperApiResults.length} total results`);
       
       if (allExtractedEntities.length > 0) {
-        console.log(`Attempting to store ${allExtractedEntities.length} extracted entities...`);
+        console.log(`🎯 ENTITY STORAGE: Attempting to store ${allExtractedEntities.length} extracted entities...`);
+        console.log(`Sample entity for debugging:`, JSON.stringify(allExtractedEntities[0], null, 2));
         
         // Insert entities in batches to handle large volumes
-        const batchSize = 100;
+        const batchSize = 50; // Smaller batches for better error handling
+        let totalStored = 0;
+        
+        for (let i = 0; i < allExtractedEntities.length; i += batchSize) {
+          const batch = allExtractedEntities.slice(i, i + batchSize);
+          
+          const { error: entitiesError, count } = await supabase
+            .from('extracted_entities')
+            .insert(batch);
+
+          if (entitiesError) {
+            console.error(`💥 ENTITY STORAGE ERROR for batch ${i}-${i + batch.length}:`, entitiesError);
+            console.error('Failed batch sample:', JSON.stringify(batch[0], null, 2));
+            
+            // Try individual inserts to identify problematic entities
+            for (const entity of batch) {
+              const { error: individualError } = await supabase
+                .from('extracted_entities')
+                .insert(entity);
+              
+              if (individualError) {
+                console.error(`💥 Individual entity failed:`, entity, individualError);
+              } else {
+                totalStored++;
+                console.log(`✅ Individual entity stored successfully`);
+              }
+            }
+          } else {
+            totalStored += batch.length;
+            console.log(`✅ BATCH SUCCESS: Stored ${batch.length} entities (total: ${totalStored}/${allExtractedEntities.length})`);
+          }
+        }
+        
+        console.log(`🏁 ENTITY STORAGE COMPLETE: ${totalStored}/${allExtractedEntities.length} entities stored successfully`);
+        
+        if (totalStored === 0) {
+          console.error(`🚨 CRITICAL: No entities were stored despite finding ${allExtractedEntities.length} entities to store!`);
+        }
+      } else {
+        console.warn('⚠️ NO ENTITIES FOUND - This indicates an issue with entity extraction');
+        
+        // Enhanced debugging: Test extraction on sample data
+        console.log('🔬 EXTRACTION DEBUG: Testing extraction functions...');
+        const sampleText = "John Smith lives at 123 Main Street and his phone number is (580) 555-1234. Email: john@example.com";
+        const testExtraction = extractEntitiesFromSearchResult(sampleText, searchRequest.searchParams);
+        console.log(`Test extraction found ${testExtraction.length} entities:`, testExtraction);
+        
+        // Debug: Check results structure  
+        const debugInfo = allSearchResults.slice(0, 2).map(r => ({
+          id: r.id,
+          title: r.title?.substring(0, 50),
+          snippet: r.snippet?.substring(0, 100),
+          hasExtractedEntities: !!r.extractedEntities,
+          extractedEntitiesCount: r.extractedEntities?.length || 0,
+          extractedEntitiesContent: r.extractedEntities?.slice(0, 2)
+        }));
+        console.log('🔍 Sample results structure:', JSON.stringify(debugInfo, null, 2));
+      }
         let totalStored = 0;
         
         for (let i = 0; i < allExtractedEntities.length; i += batchSize) {
