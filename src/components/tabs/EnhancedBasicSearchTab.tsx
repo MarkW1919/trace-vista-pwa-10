@@ -46,7 +46,11 @@ interface SearchProgress {
   completedQueries: number;
 }
 
-export const EnhancedBasicSearchTab = () => {
+interface EnhancedBasicSearchTabProps {
+  searchMode?: 'deep' | 'enhanced';
+}
+
+export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep' }: EnhancedBasicSearchTabProps) => {
   const [formData, setFormData] = useState<SearchFormData>({
     name: '',
     city: '',
@@ -67,7 +71,7 @@ export const EnhancedBasicSearchTab = () => {
     totalQueries: 0,
     completedQueries: 0
   });
-  const [searchMode, setSearchMode] = useState<'basic' | 'deep' | 'targeted' | 'enhanced'>('basic');
+  const [searchMode, setSearchMode] = useState<'deep' | 'enhanced'>(propSearchMode);
   const [hasScraperAPI, setHasScraperAPI] = useState(false);
   const [useAutomatedSearch, setUseAutomatedSearch] = useState(false);
   const [searchCost, setSearchCost] = useState(0);
@@ -154,13 +158,16 @@ export const EnhancedBasicSearchTab = () => {
         allQueries.push(...generateSpecializedDorks(searchParams, 'deep'));
         allQueries.push(...generateSpecializedDorks(searchParams, 'social'));
         allQueries.push(...generateSpecializedDorks(searchParams, 'business'));
-      } else if (searchMode === 'targeted') {
+      } else if (searchMode === 'enhanced') {
         allQueries.push(...generateReverseQueries(searchParams));
         allQueries.push(...generateSpecializedDorks(searchParams, 'legal'));
+        allQueries.push(...generateSpecializedDorks(searchParams, 'deep'));
+        allQueries.push(...generateSpecializedDorks(searchParams, 'social'));
+        allQueries.push(...generateSpecializedDorks(searchParams, 'business'));
       }
 
-      // Limit queries based on mode
-      const queryLimit = searchMode === 'basic' ? 8 : searchMode === 'deep' ? 15 : 12;
+      // Limit queries based on mode  
+      const queryLimit = searchMode === 'deep' ? 12 : 20;
       const selectedQueries = allQueries.slice(0, queryLimit);
 
       setSearchProgress({
@@ -417,49 +424,43 @@ export const EnhancedBasicSearchTab = () => {
       
       <Card className="border-primary/20">
         <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Search className="h-5 w-5 text-primary" />
-            <span>Enhanced Deep Search with Google Dorks</span>
-            <Badge variant="default" className="ml-2">Industry-Grade</Badge>
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Real OSINT search using Google Dorks - No mock data. Results depend on subject's public presence.
-          </p>
+            <CardTitle className="flex items-center space-x-2">
+              <Search className="h-5 w-5 text-primary" />
+              <span>{searchMode === 'deep' ? 'Deep Search' : 'Enhanced Pro Search'} with Google Dorks</span>
+              <Badge variant="default" className="ml-2">
+                {searchMode === 'enhanced' ? 'Maximum Accuracy' : 'Industry-Grade'}
+              </Badge>
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {searchMode === 'enhanced' 
+                ? 'Most comprehensive OSINT search with intelligent filtering and enhanced accuracy based on training data'
+                : 'Fast comprehensive OSINT search using strategic Google Dorks - Real APIs, no mock data'
+              }
+            </p>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Search Mode Selection */}
-          <Tabs value={searchMode} onValueChange={(value) => setSearchMode(value as typeof searchMode)}>
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="basic" className="flex items-center space-x-2">
-                <Search className="h-4 w-4" />
-                <span>Basic</span>
-              </TabsTrigger>
+          <Tabs value={searchMode} onValueChange={(value) => setSearchMode(value as 'deep' | 'enhanced')}>
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="deep" className="flex items-center space-x-2">
                 <Database className="h-4 w-4" />
-                <span>Deep</span>
-              </TabsTrigger>
-              <TabsTrigger value="targeted" className="flex items-center space-x-2">
-                <Target className="h-4 w-4" />
-                <span>Targeted</span>
+                <span>Deep Search</span>
               </TabsTrigger>
               <TabsTrigger value="enhanced" className="flex items-center space-x-2">
                 <Shield className="h-4 w-4" />
-                <span>Enhanced</span>
+                <span>Enhanced Pro</span>
                 {hasScraperAPI && <Badge variant="secondary" className="text-xs px-1">Pro</Badge>}
               </TabsTrigger>
             </TabsList>
             
-            <TabsContent value="basic" className="text-sm text-muted-foreground">
-              Standard search with 8 primary Google Dorks covering basic identity, social media, and public records
-            </TabsContent>
             <TabsContent value="deep" className="text-sm text-muted-foreground">
-              Comprehensive search with 15+ queries including business records, genealogy, and deep social analysis
+              Fast comprehensive search with 12 strategic queries including business records, social media, and public data
             </TabsContent>
             <TabsContent value="enhanced" className="text-sm text-muted-foreground">
               {hasScraperAPI ? (
-                <span className="text-success">ScraperAPI enhanced mode with direct website scraping, CAPTCHA bypass, and residential proxies</span>
+                <span className="text-success">Most comprehensive search with 20+ queries, ScraperAPI integration, CAPTCHA bypass, and residential proxies for maximum accuracy</span>
               ) : (
-                <span className="text-warning">Requires ScraperAPI configuration for enhanced data collection</span>
+                <span className="text-warning">Most comprehensive search mode - configure ScraperAPI for enhanced data collection capabilities</span>
               )}
             </TabsContent>
           </Tabs>

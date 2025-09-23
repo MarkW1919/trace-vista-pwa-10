@@ -757,10 +757,19 @@ serve(async (req) => {
     // Combine and remove duplicates, then sort by skip tracing relevance
     const combinedResults = [...allResults, ...scraperApiResults];
     const uniqueResults = deduplicateResults(combinedResults);
-    const sortedResults = uniqueResults.sort((a, b) => {
-      // Prioritize results with higher confidence + relevance + entity count
-      const aScore = a.confidence + a.relevanceScore + (a.extractedEntities?.length || 0) * 5;
-      const bScore = b.confidence + b.relevanceScore + (b.extractedEntities?.length || 0) * 5;
+    
+    // Apply intelligent filtering for enhanced mode
+    let finalResults = uniqueResults;
+    if (searchRequest.searchMode === 'enhanced' && uniqueResults.length > 0) {
+      console.log('🧠 Applying intelligent filtering for Enhanced Pro mode');
+      finalResults = filterIntelligentResults(uniqueResults, searchRequest.searchParams);
+      console.log(`🧠 Enhanced filtering complete: ${finalResults.length} high-quality results retained from ${uniqueResults.length} total`);
+    }
+    
+    const sortedResults = finalResults.sort((a, b) => {
+      // Prioritize results with higher confidence + relevance + entity count + intelligent score
+      const aScore = a.confidence + a.relevanceScore + (a.extractedEntities?.length || 0) * 5 + (a.intelligentScore || 0);
+      const bScore = b.confidence + b.relevanceScore + (b.extractedEntities?.length || 0) * 5 + (b.intelligentScore || 0);
       return bScore - aScore;
     });
 

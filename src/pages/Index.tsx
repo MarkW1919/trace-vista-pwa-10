@@ -36,18 +36,10 @@ const Index = () => {
     switch (activeTab) {
       case 'intro':
         return <IntroductionTab />;
-      case 'search':
-        return <EnhancedBasicSearchTab />;
-      case 'social':
-        return <SocialSearchTab />;
-      case 'phone':
-        return <EnhancedPhoneValidationTab />;
-      case 'email':
-        return <EmailOsintTab />;
-      case 'records':
-        return <PublicRecordsTab />;
-      case 'network':
-        return <NetworkAnalysisTab />;
+      case 'deep':
+        return <EnhancedBasicSearchTab searchMode="deep" />;
+      case 'enhanced':
+        return <EnhancedBasicSearchTab searchMode="enhanced" />;
       case 'report':
         return <ComprehensiveReportTab />;
       case 'methodology':
@@ -66,10 +58,10 @@ const Index = () => {
           <div className="container mx-auto px-4 py-4">
             <div className="text-center">
               <h1 className="text-2xl md:text-3xl font-bold bg-gradient-hero bg-clip-text text-transparent mb-2">
-                Professional Skip Tracing & OSINT Platform
+                Professional Skip Tracing & OSINT Platform v7.0
               </h1>
               <p className="text-sm md:text-base text-muted-foreground">
-                Real API integration • Professional methodologies • Live data extraction • Zero simulations
+                Two-Tier System: Deep Search (Fast) • Enhanced Pro (Maximum Accuracy) • Real API Integration • Live Data Extraction
               </p>
             </div>
           </div>
@@ -90,11 +82,11 @@ const Index = () => {
         <footer className="border-t bg-muted/20 mt-16">
           <div className="container mx-auto px-4 py-8 text-center">
             <p className="text-sm text-muted-foreground">
-              Professional Skip Tracing Platform v6.0 • Real APIs • Live Data Extraction • 
-              <span className="ml-2 text-primary font-medium">Progressive Web App</span>
+              Professional Skip Tracing Platform v7.0 • Simplified Two-Tier System • Real APIs • Live Data Extraction •
+              <span className="ml-2 text-primary font-medium">Enhanced Intelligence</span>
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              Professional OSINT platform using real APIs only. Always verify subject consent and use ethically.
+              Streamlined OSINT platform with intelligent search filtering and training-enhanced accuracy. Always verify subject consent and use ethically.
             </p>
           </div>
         </footer>

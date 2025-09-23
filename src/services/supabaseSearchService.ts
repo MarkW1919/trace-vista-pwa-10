@@ -11,7 +11,7 @@ interface SearchRequest {
     dob?: string;
     address?: string;
   };
-  searchMode: 'basic' | 'deep' | 'targeted' | 'enhanced';
+  searchMode: 'deep' | 'enhanced';
   useEmailOsint?: boolean;
 }
 
@@ -41,7 +41,7 @@ export class SupabaseSearchService {
    */
   static async performComprehensiveSearch(
     searchParams: SearchRequest['searchParams'],
-    searchMode: 'basic' | 'deep' | 'targeted' | 'enhanced' = 'basic',
+    searchMode: 'deep' | 'enhanced' = 'deep',
     useEmailOsint: boolean = false
   ): Promise<SearchResponse> {
     try {
