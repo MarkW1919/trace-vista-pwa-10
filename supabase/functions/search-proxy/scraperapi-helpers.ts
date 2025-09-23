@@ -33,85 +33,54 @@ export function generatePeopleSearchUrls(searchParams: any): { platform: string;
   const zipMatch = address?.match(/\b\d{5}(-\d{4})?\b/) || [];
   const zip = zipMatch[0] || '';
 
-  // HIGH PRIORITY SITES - Most likely to have comprehensive data
-
-  // WhitePages - Best accuracy for contact info
+  // TIER 1 - Premium sites with highest success rates for skip tracing
   if (cityClean && stateClean) {
     const locationSlug = `${cityClean.replace(/\s+/g, '-')}-${stateClean.replace(/\s+/g, '-')}`.toLowerCase();
+    
+    // WhitePages - Most comprehensive contact info
     urls.push({
       platform: 'whitepages',
       url: `https://www.whitepages.com/name/${encodedName}/${encodeURIComponent(locationSlug)}`,
       priority: 1,
-      credits: 50 // Stealth mode for anti-detection
+      credits: 50 // Stealth mode for maximum success
     });
-  }
 
-  // TruePeopleSearch - Excellent for current addresses
-  if (cityClean && stateClean) {
+    // TruePeopleSearch - Current addresses and relatives
     urls.push({
       platform: 'truepeoplesearch',
       url: `https://www.truepeoplesearch.com/results?name=${encodedName}&citystatezip=${encodeURIComponent(`${cityClean} ${stateClean} ${zip}`.trim())}`,
       priority: 1,
-      credits: 10 // Standard mode sufficient
+      credits: 25 // Enhanced for better data
     });
-  }
 
-  // FastPeopleSearch - Good for relatives and associates
-  if (cityClean && stateClean) {
-    urls.push({
-      platform: 'fastpeoplesearch',
-      url: `https://www.fastpeoplesearch.com/search/people/${encodedName}/${encodeURIComponent(`${cityClean}-${stateClean}`)}`,
-      priority: 1,
-      credits: 1 // Light mode works well
-    });
-  } else {
-    urls.push({
-      platform: 'fastpeoplesearch',
-      url: `https://www.fastpeoplesearch.com/search/people/${encodedName}`,
-      priority: 2,
-      credits: 1
-    });
-  }
-
-  // MEDIUM PRIORITY SITES - Good supplementary data
-
-  // Spokeo - Age, education, social profiles
-  if (cityClean && stateClean) {
+    // Spokeo - Age, education, social profiles
     urls.push({
       platform: 'spokeo',
       url: `https://www.spokeo.com/search?q=${encodedName}&g=${encodeURIComponent(`${cityClean} ${stateClean}`)}`,
-      priority: 2,
-      credits: 25 // Deep mode for better data extraction
-    });
-  } else {
-    urls.push({
-      platform: 'spokeo',
-      url: `https://www.spokeo.com/search?q=${encodedName}`,
-      priority: 3,
+      priority: 1,
       credits: 25
     });
   }
 
-  // BeenVerified - Criminal records, property history
+  // TIER 2 - High-value supplementary sources
   if (cityClean && stateClean) {
+    // BeenVerified - Criminal records, property history
     urls.push({
       platform: 'beenverified',
       url: `https://www.beenverified.com/people/${encodedName}/${encodeURIComponent(`${cityClean}-${stateClean}`)}`,
       priority: 2,
       credits: 25
     });
-  }
 
-  // PeopleFinders - Employment history, business connections
-  urls.push({
-    platform: 'peoplefinders',
-    url: `https://www.peoplefinders.com/people/${encodedName}${cityClean && stateClean ? `/${encodeURIComponent(`${cityClean}-${stateClean}`)}` : ''}`,
-    priority: 2,
-    credits: 25
-  });
+    // PeopleFinders - Employment history, business connections
+    urls.push({
+      platform: 'peoplefinders',
+      url: `https://www.peoplefinders.com/people/${encodedName}/${encodeURIComponent(`${cityClean}-${stateClean}`)}`,
+      priority: 2,
+      credits: 25
+    });
 
-  // Intelius - Comprehensive background data
-  if (cityClean && stateClean) {
+    // Intelius - Comprehensive background data
     urls.push({
       platform: 'intelius',
       url: `https://www.intelius.com/people-search/${encodedName}/${encodeURIComponent(`${cityClean}-${stateClean}`)}`,
@@ -120,7 +89,18 @@ export function generatePeopleSearchUrls(searchParams: any): { platform: string;
     });
   }
 
-  // SPECIALIZED SEARCHES
+  // TIER 3 - Cost-effective broad searches
+  // FastPeopleSearch - Good relatives and basic contact info
+  urls.push({
+    platform: 'fastpeoplesearch',
+    url: cityClean && stateClean 
+      ? `https://www.fastpeoplesearch.com/search/people/${encodedName}/${encodeURIComponent(`${cityClean}-${stateClean}`)}`
+      : `https://www.fastpeoplesearch.com/search/people/${encodedName}`,
+    priority: 3,
+    credits: 1 // Light mode sufficient
+  });
+
+  // SPECIALIZED SEARCHES - High priority for skip tracing
 
   // Phone number reverse lookup
   if (phone) {
@@ -139,10 +119,17 @@ export function generatePeopleSearchUrls(searchParams: any): { platform: string;
         priority: 2,
         credits: 10
       });
+
+      urls.push({
+        platform: 'phonevalidator',
+        url: `https://www.phonevalidator.com/search/results.aspx?phoneno=${cleanPhone}`,
+        priority: 3,
+        credits: 10
+      });
     }
   }
 
-  // Email-based searches
+  // Email-based searches for social and professional connections
   if (email && email.includes('@')) {
     urls.push({
       platform: 'pipl-email',
@@ -150,21 +137,43 @@ export function generatePeopleSearchUrls(searchParams: any): { platform: string;
       priority: 2,
       credits: 25
     });
+    
+    // Professional network searches
+    const domain = email.split('@')[1];
+    if (!['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'].includes(domain.toLowerCase())) {
+      urls.push({
+        platform: 'company-search',
+        url: `https://www.linkedin.com/company/${domain.replace('.com', '')}`,
+        priority: 3,
+        credits: 10
+      });
+    }
   }
 
-  // Address-based searches
+  // Property and address history searches
   if (address && cityClean && stateClean) {
     const encodedAddress = encodeURIComponent(address);
+    
     urls.push({
       platform: 'property-search',
       url: `https://www.realtor.com/realestateandhomes-search/${encodeURIComponent(`${cityClean}_${stateClean}`)}?search=${encodedAddress}`,
       priority: 3,
       credits: 10
     });
+
+    urls.push({
+      platform: 'property-history',
+      url: `https://www.zillow.com/homes/${encodedAddress.replace(/\s+/g, '-')}-${encodeURIComponent(cityClean)}-${encodeURIComponent(stateClean)}_rb/`,
+      priority: 3,
+      credits: 10
+    });
   }
 
-  // Sort by priority and return top results to manage costs
-  return urls.sort((a, b) => a.priority - b.priority).slice(0, 12);
+  // Sort by priority and return optimized list for skip tracing
+  return urls.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return b.credits - a.credits; // Higher credit searches tend to have better data
+  }).slice(0, 15); // Increased limit for comprehensive skip tracing
 }
 
 /**

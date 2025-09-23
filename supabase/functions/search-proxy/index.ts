@@ -181,9 +181,10 @@ async function checkScraperAPICredits(apiKey: string): Promise<{ hasCredits: boo
     }
 
     const data = await response.json();
+    console.log('ScraperAPI account data:', data);
     
-    // ScraperAPI returns different properties based on account type
-    const credits = data.requestCount || data.remainingRequests || data.credits || 0;
+    // Fixed: ScraperAPI returns different properties - check all possible ones
+    const credits = data.concurrentRequests || data.requestsRemaining || data.requestCount || data.credits || data.balance || 0;
     
     return {
       hasCredits: credits > 0,
@@ -194,6 +195,8 @@ async function checkScraperAPICredits(apiKey: string): Promise<{ hasCredits: boo
     return { hasCredits: false, credits: 0, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
+
+serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -451,11 +454,10 @@ async function checkScraperAPICredits(apiKey: string): Promise<{ hasCredits: boo
       
       try {
         // Check ScraperAPI credits first
-        const creditsResponse = await fetch(`https://api.scraperapi.com/account?api_key=${scraperApiKey}`);
+        const creditsCheck = await checkScraperAPICredits(scraperApiKey);
         
-        if (creditsResponse.ok) {
-          const creditData = await creditsResponse.json();
-          const remainingCredits = creditData.requestCount || creditData.concurrentRequests || 0;
+        if (creditsCheck.hasCredits) {
+          const remainingCredits = creditsCheck.credits;
           
           if (remainingCredits <= 0) {
             console.warn('ScraperAPI: No credits remaining, skipping enhanced data collection');
@@ -582,6 +584,37 @@ async function checkScraperAPICredits(apiKey: string): Promise<{ hasCredits: boo
       if (insertError) {
         console.error('Error storing results:', insertError);
       }
+
+      // Store extracted entities in dedicated table for comprehensive skip tracing
+      const allExtractedEntities: any[] = [];
+      allSearchResults.forEach((result, resultIndex) => {
+        if (result.extractedEntities && result.extractedEntities.length > 0) {
+          result.extractedEntities.forEach((entity: any, entityIndex: number) => {
+            allExtractedEntities.push({
+              session_id: session.id,
+              user_id: user.id,
+              entity_type: entity.type,
+              entity_value: entity.value,
+              confidence: entity.confidence || 60,
+              verified: false,
+              source_result_id: result.id || `result-${resultIndex}-${entityIndex}`
+            });
+          });
+        }
+      });
+
+      if (allExtractedEntities.length > 0) {
+        console.log(`Storing ${allExtractedEntities.length} extracted entities...`);
+        const { error: entitiesError } = await supabase
+          .from('extracted_entities')
+          .insert(allExtractedEntities);
+
+        if (entitiesError) {
+          console.error('Error storing extracted entities:', entitiesError);
+        } else {
+          console.log(`Successfully stored ${allExtractedEntities.length} entities for skip tracing analysis`);
+        }
+      }
     }
 
     // Update search session with final stats including ScraperAPI
@@ -594,13 +627,7 @@ async function checkScraperAPICredits(apiKey: string): Promise<{ hasCredits: boo
         status: 'completed',
         total_results: finalResultCount,
         total_cost: finalTotalCost,
-        completed_at: new Date().toISOString(),
-        metadata: {
-          serpapi_results: allResults.length,
-          scraperapi_results: scraperApiResults.length,
-          scraperapi_enabled: useScraperAPI,
-          search_mode: searchRequest.searchMode
-        }
+        completed_at: new Date().toISOString()
       })
       .eq('id', session.id);
 
