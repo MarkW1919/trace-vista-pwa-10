@@ -341,6 +341,7 @@ export class ScraperAPIService {
     valid: boolean;
     credits?: number;
     error?: string;
+    hasCredits?: boolean;
   }> {
     try {
       const creditInfo = await this.getCreditInfo(apiKey);
@@ -348,7 +349,8 @@ export class ScraperAPIService {
       if (creditInfo) {
         return {
           valid: true,
-          credits: creditInfo.remaining
+          credits: creditInfo.remaining,
+          hasCredits: creditInfo.remaining > 0
         };
       } else {
         return {
@@ -360,6 +362,31 @@ export class ScraperAPIService {
       return {
         valid: false,
         error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Check if the API key has sufficient credits for scraping
+   */
+  static async checkCredits(apiKey: string): Promise<{ 
+    hasCredits: boolean; 
+    credits?: number; 
+    error?: string; 
+  }> {
+    try {
+      const result = await this.testApiKey(apiKey);
+      if (!result.valid) {
+        return { hasCredits: false, error: result.error };
+      }
+      return { 
+        hasCredits: result.hasCredits || false, 
+        credits: result.credits 
+      };
+    } catch (error) {
+      return { 
+        hasCredits: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
       };
     }
   }

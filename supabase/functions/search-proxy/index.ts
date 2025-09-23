@@ -428,43 +428,65 @@ serve(async (req) => {
       console.log('Performing ScraperAPI enhanced data collection...');
       
       try {
-        // Generate targeted URLs for people search sites
-        const searchUrls = generatePeopleSearchUrls(searchRequest.searchParams);
+        // Check ScraperAPI credits first
+        const creditsResponse = await fetch(`https://api.scraperapi.com/account?api_key=${scraperApiKey}`);
         
-        for (const { platform, url } of searchUrls.slice(0, 3)) { // Limit to 3 sites to control cost
-          try {
-            const scrapeResult = await performScraperAPISearch(url, platform, scraperApiKey);
+        if (creditsResponse.ok) {
+          const creditData = await creditsResponse.json();
+          const remainingCredits = creditData.requestCount || creditData.concurrentRequests || 0;
+          
+          if (remainingCredits <= 0) {
+            console.warn('ScraperAPI: No credits remaining, skipping enhanced data collection');
+            // Continue with regular search results
+          } else {
+            console.log(`ScraperAPI credits remaining: ${remainingCredits}`);
             
-            if (scrapeResult.success && scrapeResult.html) {
-              // Extract entities from scraped content
-              const extractedData = extractEntitiesFromScrapedContent(scrapeResult.html, platform, searchRequest.searchParams);
-              
-              if (extractedData.length > 0) {
-                scraperApiResults.push(...extractedData);
-                scraperApiCost += scrapeResult.cost || 0;
+            // Generate targeted URLs for people search sites
+            const searchUrls = generatePeopleSearchUrls(searchRequest.searchParams);
+            
+            for (const { platform, url } of searchUrls.slice(0, 3)) { // Limit to 3 sites to control cost
+              try {
+                const scrapeResult = await performScraperAPISearch(url, platform, scraperApiKey);
+                
+                if (scrapeResult.success && scrapeResult.html) {
+                  // Extract entities from scraped content
+                  const extractedData = extractEntitiesFromScrapedContent(scrapeResult.html, platform, searchRequest.searchParams);
+                  
+                  if (extractedData.length > 0) {
+                    scraperApiResults.push(...extractedData);
+                    scraperApiCost += scrapeResult.cost || 0;
 
-                // Store ScraperAPI cost tracking
-                await supabase.from('api_cost_tracking').insert({
-                  user_id: user.id,
-                  service_name: 'ScraperAPI',
-                  operation_type: platform,
-                  cost: scrapeResult.cost || 0,
-                  queries_used: 1,
-                  session_id: session.id
-                });
+                    // Store ScraperAPI cost tracking
+                    await supabase.from('api_cost_tracking').insert({
+                      user_id: user.id,
+                      service_name: 'ScraperAPI',
+                      operation_type: platform,
+                      cost: scrapeResult.cost || 0,
+                      queries_used: 1,
+                      session_id: session.id
+                    });
+                  }
+                } else if (scrapeResult.error && scrapeResult.error.includes('insufficient credits')) {
+                  console.warn(`ScraperAPI: Insufficient credits for ${platform}, stopping further requests`);
+                  break;
+                }
+                
+                // Rate limiting between scrapes
+                await new Promise(resolve => setTimeout(resolve, 500));
+              } catch (error) {
+                console.error(`ScraperAPI error for ${platform}:`, error);
+                // Continue with other platforms even if one fails
               }
             }
-            
-            // Rate limiting between scrapes
-            await new Promise(resolve => setTimeout(resolve, 500));
-          } catch (error) {
-            console.error(`ScraperAPI error for ${platform}:`, error);
-          }
-        }
 
-        console.log(`ScraperAPI enhanced collection completed. Results: ${scraperApiResults.length}, Cost: $${scraperApiCost.toFixed(4)}`);
+            console.log(`ScraperAPI enhanced collection completed. Results: ${scraperApiResults.length}, Cost: $${scraperApiCost.toFixed(4)}`);
+          }
+        } else {
+          console.warn('ScraperAPI: Failed to check credits, proceeding with limited requests');
+        }
       } catch (error) {
         console.error('ScraperAPI integration error:', error);
+        // Continue with regular search results even if ScraperAPI fails
       }
     }
 

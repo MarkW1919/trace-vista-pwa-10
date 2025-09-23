@@ -20,6 +20,7 @@ export const ScraperAPIManager: React.FC<ScraperAPIManagerProps> = ({ onApiKeyUp
     valid: boolean;
     credits?: number;
     error?: string;
+    hasCredits?: boolean;
   } | null>(null);
   const [costTracking, setCostTracking] = useState({
     totalCredits: 0,
@@ -141,10 +142,22 @@ export const ScraperAPIManager: React.FC<ScraperAPIManagerProps> = ({ onApiKeyUp
                     <XCircle className="h-4 w-4 text-destructive" />
                   )}
                   <AlertDescription>
-                    {validationResult.valid
-                      ? `API key valid! Credits available: ${validationResult.credits?.toLocaleString()}`
-                      : `Invalid API key: ${validationResult.error}`
-                    }
+                    {validationResult.valid ? (
+                      validationResult.hasCredits ? (
+                        `API key valid! Credits available: ${validationResult.credits?.toLocaleString()}`
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-amber-600 font-medium">
+                            API key valid, but no credits remaining: {validationResult.credits?.toLocaleString() || 0}
+                          </p>
+                          <p className="text-sm">
+                            Enhanced scraping will be disabled until credits are refilled. Regular search functionality remains available.
+                          </p>
+                        </div>
+                      )
+                    ) : (
+                      `Invalid API key: ${validationResult.error}`
+                    )}
                   </AlertDescription>
                 </div>
               </Alert>
@@ -155,8 +168,14 @@ export const ScraperAPIManager: React.FC<ScraperAPIManagerProps> = ({ onApiKeyUp
                 <Button variant="outline" size="sm" onClick={handleClear}>
                   Clear Key
                 </Button>
-                <Badge variant="secondary" className="ml-auto">
-                  Enhanced scraping enabled
+                <Badge 
+                  variant={validationResult.hasCredits ? "secondary" : "destructive"} 
+                  className="ml-auto"
+                >
+                  {validationResult.hasCredits 
+                    ? "Enhanced scraping enabled" 
+                    : "No credits - enhanced scraping disabled"
+                  }
                 </Badge>
               </div>
             )}
