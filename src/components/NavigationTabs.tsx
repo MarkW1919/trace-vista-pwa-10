@@ -1,5 +1,5 @@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Users, Phone, Network, BookOpen, Home } from 'lucide-react';
+import { Search, Users, Phone, Network, BookOpen, Home, Activity } from 'lucide-react';
 
 interface NavigationTabsProps {
   activeTab: string;
@@ -16,13 +16,14 @@ const tabs = [
   { id: 'network', label: 'Link Analysis', icon: Network },
   { id: 'report', label: 'Report', icon: BookOpen },
   { id: 'methodology', label: 'Methodology', icon: BookOpen },
+  { id: 'monitor', label: 'System Status', icon: Activity },
 ];
 
 export const NavigationTabs = ({ activeTab, onTabChange }: NavigationTabsProps) => {
   return (
     <div className="w-full overflow-x-auto">
       <Tabs value={activeTab} onValueChange={onTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-9 bg-muted/50">
+        <TabsList className="grid w-full grid-cols-10 bg-muted/50">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (

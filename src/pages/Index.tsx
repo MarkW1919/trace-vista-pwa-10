@@ -14,6 +14,7 @@ import { ComprehensiveReportTab } from '@/components/tabs/ComprehensiveReportTab
 import { MethodologyTab } from '@/components/tabs/MethodologyTab';
 import { SkipTracingProvider } from '@/contexts/SkipTracingContext';
 import { Toaster } from '@/components/ui/toaster';
+import { SystemStatusMonitor } from '@/components/SystemStatusMonitor';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('intro');
@@ -51,6 +52,8 @@ const Index = () => {
         return <ComprehensiveReportTab />;
       case 'methodology':
         return <MethodologyTab />;
+      case 'monitor':
+        return <SystemStatusMonitor />;
       default:
         return <IntroductionTab />;
     }

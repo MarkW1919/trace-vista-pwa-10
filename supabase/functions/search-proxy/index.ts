@@ -583,45 +583,82 @@ serve(async (req) => {
 
       if (insertError) {
         console.error('Error storing results:', insertError);
+      } else {
+        console.log(`Successfully stored ${resultsToInsert.length} search results`);
       }
 
-      // Store extracted entities in dedicated table for comprehensive skip tracing
+      // ENHANCED: Store extracted entities in dedicated table for comprehensive skip tracing
       const allExtractedEntities: any[] = [];
       allSearchResults.forEach((result, resultIndex) => {
         if (result.extractedEntities && result.extractedEntities.length > 0) {
           result.extractedEntities.forEach((entity: any, entityIndex: number) => {
-            allExtractedEntities.push({
-              session_id: session.id,
-              user_id: user.id,
-              entity_type: entity.type,
-              entity_value: entity.value,
-              confidence: entity.confidence || 60,
-              verified: false,
-              source_result_id: result.id || `result-${resultIndex}-${entityIndex}`
-            });
+            if (entity && entity.type && entity.value) {  // Validate entity structure
+              allExtractedEntities.push({
+                session_id: session.id,
+                user_id: user.id,
+                entity_type: entity.type,
+                entity_value: entity.value.toString().trim(),  // Ensure string and trim
+                confidence: Math.max(1, Math.min(100, entity.confidence || 60)),  // Ensure valid confidence range
+                verified: false,
+                source_result_id: `${session.id}-${resultIndex}-${entityIndex}`
+              });
+            } else {
+              console.warn(`Invalid entity structure skipped:`, entity);
+            }
           });
         }
       });
 
+      console.log(`Found ${allExtractedEntities.length} entities to store from ${allSearchResults.length} results`);
+      
       if (allExtractedEntities.length > 0) {
-        console.log(`Storing ${allExtractedEntities.length} extracted entities...`);
-        const { error: entitiesError } = await supabase
-          .from('extracted_entities')
-          .insert(allExtractedEntities);
+        console.log(`Attempting to store ${allExtractedEntities.length} extracted entities...`);
+        
+        // Insert entities in batches to handle large volumes
+        const batchSize = 100;
+        let totalStored = 0;
+        
+        for (let i = 0; i < allExtractedEntities.length; i += batchSize) {
+          const batch = allExtractedEntities.slice(i, i + batchSize);
+          
+          const { error: entitiesError, count } = await supabase
+            .from('extracted_entities')
+            .insert(batch);
 
-        if (entitiesError) {
-          console.error('Error storing extracted entities:', entitiesError);
-        } else {
-          console.log(`Successfully stored ${allExtractedEntities.length} entities for skip tracing analysis`);
+          if (entitiesError) {
+            console.error(`Error storing entity batch ${i}-${i + batch.length}:`, entitiesError);
+            console.error('Sample entity from failed batch:', JSON.stringify(batch[0], null, 2));
+          } else {
+            totalStored += batch.length;
+            console.log(`Successfully stored entity batch: ${batch.length} entities (total: ${totalStored})`);
+          }
+        }
+        
+        console.log(`ENTITY STORAGE COMPLETE: ${totalStored}/${allExtractedEntities.length} entities stored successfully`);
+      } else {
+        console.warn('No valid entities found to store - entity extraction may need improvement');
+        
+        // Debug: Check if results have extractedEntities
+        const resultsWithEntities = allSearchResults.filter(r => r.extractedEntities && r.extractedEntities.length > 0);
+        console.log(`Debug: ${resultsWithEntities.length} results have extractedEntities arrays`);
+        if (resultsWithEntities.length > 0) {
+          console.log('Sample result with entities:', JSON.stringify({
+            title: resultsWithEntities[0].title,
+            extractedEntities: resultsWithEntities[0].extractedEntities
+          }, null, 2));
         }
       }
+    } else {
+      console.warn('No search results to store');
     }
 
     // Update search session with final stats including ScraperAPI
     const finalTotalCost = totalCost + scraperApiCost;
     const finalResultCount = allResults.length + scraperApiResults.length;
     
-    await supabase
+    console.log(`Updating session ${session.id} with completion status...`);
+    
+    const { error: updateError } = await supabase
       .from('search_sessions')
       .update({
         status: 'completed',
@@ -630,6 +667,12 @@ serve(async (req) => {
         completed_at: new Date().toISOString()
       })
       .eq('id', session.id);
+
+    if (updateError) {
+      console.error('Error updating session:', updateError);
+    } else {
+      console.log(`Session ${session.id} marked as completed with ${finalResultCount} results and $${finalTotalCost.toFixed(4)} cost`);
+    }
 
     // Combine and remove duplicates, then sort by skip tracing relevance
     const combinedResults = [...allResults, ...scraperApiResults];
@@ -656,6 +699,24 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Search proxy error:', error);
+    
+    // Try to update session with error status
+    try {
+      if (session?.id) {
+        await supabase
+          .from('search_sessions')
+          .update({
+            status: 'failed',
+            error_message: error instanceof Error ? error.message : 'Unknown error',
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', session.id);
+        
+        console.log(`Session ${session.id} marked as failed due to error`);
+      }
+    } catch (updateError) {
+      console.error('Failed to update session with error status:', updateError);
+    }
     
     return new Response(JSON.stringify({
       success: false,
