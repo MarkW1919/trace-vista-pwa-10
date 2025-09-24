@@ -14,6 +14,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { generateGoogleDorks, generateSpecializedDorks, generateReverseQueries, type SearchParams } from '@/utils/googleDorks';
+import { SearchResults } from '@/components/SearchResults';
 import { calculateRelevanceScore } from '@/utils/scoring';
 import { extractEntities } from '@/utils/entityExtraction';
 import { performRealWebSearch } from '@/utils/realWebSearch';
@@ -48,9 +49,10 @@ interface SearchProgress {
 
 interface EnhancedBasicSearchTabProps {
   searchMode?: 'deep' | 'enhanced';
+  onNavigateToReport?: (result: SearchResult) => void;
 }
 
-export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep' }: EnhancedBasicSearchTabProps) => {
+export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', onNavigateToReport }: EnhancedBasicSearchTabProps) => {
   const [formData, setFormData] = useState<SearchFormData>({
     name: '',
     city: '',
@@ -672,47 +674,14 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep' }: 
             </Badge>
           </div>
           
-          <div className="grid gap-4">
-            {results.map((result) => (
-              <Card key={result.id} className="border-muted hover:border-primary/50 transition-colors">
-                <CardContent className="pt-4">
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-foreground flex items-center">
-                          {result.source === 'OSINT Education' && '🎓 '}
-                          {result.title}
-                        </h4>
-                        <p className="text-sm text-muted-foreground mt-1">{result.snippet}</p>
-                      </div>
-                      {result.confidence > 0 && (
-                        <Badge variant="outline" className="ml-3">
-                          {result.confidence}% confidence
-                        </Badge>
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center justify-between pt-2 border-t">
-                      <span className="text-xs text-muted-foreground">
-                        Platform: {result.source}
-                      </span>
-                      {result.url && (
-                        <Button 
-                          variant={result.source === 'OSINT Education' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => window.open(result.url, '_blank', 'noopener,noreferrer')}
-                          className="text-xs"
-                        >
-                          <ExternalLink className="h-3 w-3 mr-1" />
-                          {result.source === 'OSINT Education' ? 'Learn More' : 'Search Manually'}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <SearchResults 
+            results={results} 
+            isLoading={false}
+            onViewReport={(result) => {
+              dispatch({ type: 'SET_FILTERED_REPORT', payload: result as any });
+              onNavigateToReport?.(result as any);
+            }}
+          />
           
           <Card className="mt-6 border-warning/20 bg-warning/5">
             <CardContent className="pt-6">

@@ -37,9 +37,9 @@ const Index = () => {
       case 'intro':
         return <IntroductionTab />;
       case 'deep':
-        return <EnhancedBasicSearchTab searchMode="deep" />;
+        return <EnhancedBasicSearchTab searchMode="deep" onNavigateToReport={() => setActiveTab('report')} />;
       case 'enhanced':
-        return <EnhancedBasicSearchTab searchMode="enhanced" />;
+        return <EnhancedBasicSearchTab searchMode="enhanced" onNavigateToReport={() => setActiveTab('report')} />;
       case 'report':
         return <ComprehensiveReportTab />;
       case 'methodology':

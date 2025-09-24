@@ -9,6 +9,7 @@ interface SkipTracingState {
   report: CompiledReport | null;
   searchHistory: string[];
   hasLowResults: boolean;
+  filteredResult: SearchResult | null;
   isLoading: {
     basicSearch: boolean;
     phoneSearch: boolean;
@@ -26,6 +27,7 @@ type SkipTracingAction =
   | { type: 'SET_LOADING'; payload: { module: keyof SkipTracingState['isLoading']; loading: boolean } }
   | { type: 'SET_LOW_RESULTS'; payload: boolean }
   | { type: 'ADD_TO_HISTORY'; payload: string }
+  | { type: 'SET_FILTERED_REPORT'; payload: SearchResult }
   | { type: 'CLEAR_ALL' };
 
 const initialState: SkipTracingState = {
@@ -35,6 +37,7 @@ const initialState: SkipTracingState = {
   report: null,
   searchHistory: [],
   hasLowResults: false,
+  filteredResult: null,
   isLoading: {
     basicSearch: false,
     phoneSearch: false,
@@ -117,6 +120,12 @@ function skipTracingReducer(state: SkipTracingState, action: SkipTracingAction):
       return {
         ...state,
         searchHistory: [...state.searchHistory, action.payload].slice(-20), // Keep last 20
+      };
+
+    case 'SET_FILTERED_REPORT':
+      return {
+        ...state,
+        filteredResult: action.payload,
       };
 
     case 'CLEAR_ALL':

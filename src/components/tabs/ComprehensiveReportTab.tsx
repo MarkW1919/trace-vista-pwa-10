@@ -11,26 +11,34 @@ import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { useToast } from '@/hooks/use-toast';
 import { calculateAccuracyMetrics, calculateConfidenceInterval } from '@/utils/scoring';
 import { ApiSearchService } from '@/services/apiSearchService';
+import { SearchResult } from '@/types/entities';
 
 export const ComprehensiveReportTab = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [useAutomatedSearch, setUseAutomatedSearch] = useState(false);
   const [reportCost, setReportCost] = useState(0);
+  const [filteredResults, setFilteredResults] = useState<SearchResult[]>([]);
   const { state, dispatch } = useSkipTracing();
   const { toast } = useToast();
 
   const reportMetrics = useMemo(() => {
-    if (state.compiledResults.length === 0) return null;
+    const resultsToUse = state.filteredResult ? [state.filteredResult] : state.compiledResults;
+    const entitiesToUse = state.filteredResult?.extractedEntities || state.entities;
     
-    const metrics = calculateAccuracyMetrics(state.compiledResults, state.entities);
-    const confidenceScores = state.compiledResults.map(r => r.confidence);
+    if (resultsToUse.length === 0) return null;
+    
+    const metrics = calculateAccuracyMetrics(resultsToUse, entitiesToUse);
+    const confidenceScores = resultsToUse.map(r => r.confidence);
     const confidenceInterval = calculateConfidenceInterval(confidenceScores);
     
     return { ...metrics, confidenceInterval };
-  }, [state.compiledResults, state.entities]);
+  }, [state.compiledResults, state.entities, state.filteredResult]);
 
   const generateReport = async () => {
-    if (state.compiledResults.length === 0) {
+    const resultsToUse = state.filteredResult ? [state.filteredResult] : state.compiledResults;
+    const entitiesToUse = state.filteredResult?.extractedEntities || state.entities;
+    
+    if (resultsToUse.length === 0) {
       toast({
         title: "No Data Available",
         description: "Please perform some searches first to generate a report",
@@ -45,18 +53,22 @@ export const ComprehensiveReportTab = () => {
       // Simulate report generation
       await new Promise(resolve => setTimeout(resolve, 2000));
       
+      const reportTitle = state.filteredResult 
+        ? `Detailed Report - ${state.filteredResult.title}`
+        : 'Comprehensive Search Report';
+      
       dispatch({
         type: 'GENERATE_REPORT',
         payload: {
           subject: {
-            name: 'Search Subject',
+            name: state.filteredResult?.title || 'Search Subject',
             lastKnownLocation: 'Various Locations',
             searchDate: new Date(),
           },
           timeline: generateTimeline(),
           accuracy: {
             overallConfidence: reportMetrics?.overallConfidence || 0,
-            crossVerified: state.entities.filter(e => e.verified).length,
+            crossVerified: entitiesToUse.filter(e => e.verified).length,
             flaggedInconsistencies: [],
           },
         },
@@ -64,7 +76,9 @@ export const ComprehensiveReportTab = () => {
       
       toast({
         title: "Report Generated",
-        description: "Comprehensive skip tracing report has been compiled",
+        description: state.filteredResult 
+          ? "Detailed result report has been compiled"
+          : "Comprehensive skip tracing report has been compiled",
         variant: "default",
       });
     } catch (error) {
@@ -166,7 +180,12 @@ export const ComprehensiveReportTab = () => {
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <ClipboardList className="h-5 w-5 text-success" />
-              <span>Comprehensive Skip Tracing Report</span>
+              <span>{state.filteredResult ? 'Detailed Result Report' : 'Comprehensive Skip Tracing Report'}</span>
+              {state.filteredResult && (
+                <Badge variant="secondary" className="text-xs">
+                  Individual Result
+                </Badge>
+              )}
               {useAutomatedSearch && reportCost > 0 && (
                 <Badge variant="secondary" className="text-xs">
                   Cost: ${reportCost.toFixed(3)}
@@ -174,9 +193,18 @@ export const ComprehensiveReportTab = () => {
               )}
             </div>
             <div className="flex items-center space-x-2">
+              {state.filteredResult && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => dispatch({ type: 'SET_FILTERED_REPORT', payload: null })}
+                >
+                  View All Results
+                </Button>
+              )}
               <Button 
                 onClick={generateReport} 
-                disabled={isGenerating || state.compiledResults.length === 0}
+                disabled={isGenerating || (state.filteredResult ? !state.filteredResult : state.compiledResults.length === 0)}
                 size="sm"
               >
                 {isGenerating ? 'Generating...' : 'Generate Report'}
@@ -187,7 +215,10 @@ export const ComprehensiveReportTab = () => {
             </div>
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Compile and analyze all search results with accuracy metrics and export capabilities
+            {state.filteredResult 
+              ? `Detailed analysis for: ${state.filteredResult.title}`
+              : 'Compile and analyze all search results with accuracy metrics and export capabilities'
+            }
             {useAutomatedSearch && " • API-powered automated analysis enabled"}
           </p>
         </CardHeader>
@@ -414,17 +445,24 @@ export const ComprehensiveReportTab = () => {
         </div>
       )}
 
-      {state.compiledResults.length === 0 && (
+      {(state.filteredResult || state.compiledResults.length === 0) && !reportMetrics && (
         <Card className="border-muted">
           <CardContent className="pt-6 text-center py-12">
             <ClipboardList className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium mb-2">No Data Available</h3>
+            <h3 className="text-lg font-medium mb-2">
+              {state.filteredResult ? 'Result Details' : 'No Data Available'}
+            </h3>
             <p className="text-muted-foreground mb-4">
-              Perform searches in other tabs to generate comprehensive reports
+              {state.filteredResult 
+                ? `Showing detailed analysis for: ${state.filteredResult.title}`
+                : 'Perform searches in other tabs to generate comprehensive reports'
+              }
             </p>
-            <p className="text-sm text-muted-foreground">
-              Try: Basic Search → Phone Validation → Email OSINT → Public Records
-            </p>
+            {!state.filteredResult && (
+              <p className="text-sm text-muted-foreground">
+                Try: Deep Search → Enhanced Pro → Phone Validation → Email OSINT → Public Records
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

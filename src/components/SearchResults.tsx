@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ExternalLink, Phone, Mail, MapPin, User, Search, TrendingUp } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ExternalLink, Phone, Mail, MapPin, User, Search, TrendingUp, FileText } from 'lucide-react';
 
 interface SearchResult {
   id: string;
@@ -20,6 +21,7 @@ interface Entity {
 interface SearchResultsProps {
   results: SearchResult[];
   isLoading?: boolean;
+  onViewReport?: (result: SearchResult) => void;
 }
 
 const entityIcons = {
@@ -36,7 +38,7 @@ const entityColors = {
   name: 'bg-orange-100 text-orange-800',
 };
 
-export const SearchResults = ({ results, isLoading }: SearchResultsProps) => {
+export const SearchResults = ({ results, isLoading, onViewReport }: SearchResultsProps) => {
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -155,11 +157,24 @@ export const SearchResults = ({ results, isLoading }: SearchResultsProps) => {
                 <span>Verify Source</span>
               </a>
               
-              {(result as any).relevanceScore && (
-                <div className="text-xs text-muted-foreground">
-                  Relevance: {Math.round((result as any).relevanceScore)}%
-                </div>
-              )}
+              <div className="flex items-center space-x-2">
+                {onViewReport && (
+                  <Button
+                    onClick={() => onViewReport(result)}
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7"
+                  >
+                    <FileText className="h-3 w-3 mr-1" />
+                    View Report
+                  </Button>
+                )}
+                {(result as any).relevanceScore && (
+                  <div className="text-xs text-muted-foreground">
+                    Relevance: {Math.round((result as any).relevanceScore)}%
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

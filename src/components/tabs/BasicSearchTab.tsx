@@ -476,7 +476,14 @@ export const BasicSearchTab = () => {
       {(results.length > 0 || isLoading) && (
         <div>
           <h3 className="text-lg font-semibold mb-4">Search Results</h3>
-          <SearchResults results={results} isLoading={isLoading} />
+          <SearchResults 
+            results={results} 
+            isLoading={isLoading} 
+            onViewReport={(result) => {
+              // Handle report view - you'd typically navigate to report tab here
+              console.log('View report for:', result);
+            }}
+          />
         </div>
       )}
     </div>
