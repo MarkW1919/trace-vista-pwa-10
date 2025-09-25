@@ -12,6 +12,8 @@
 //   SUPABASE_SERVICE_ROLE_KEY
 //   SEARCH_TIMEOUT_MS (optional, default 60000ms)
 //   MAX_RETRIES (optional, default 2)
+//
+// Notes: Adjust table/column names to match your schema (search_sessions, search_results, extracted_entities).
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -21,7 +23,6 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var');
 }
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
@@ -77,8 +78,10 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, retries = MAX_RETRIES, 
       return await fn();
     } catch (err: any) {
       lastErr = err;
+      // do not retry on AbortError (explicit cancellation)
       if (err?.name === 'AbortError') throw err;
       const wait = initialMs * Math.pow(2, attempt);
+      // simple jitter
       const jitter = Math.floor(Math.random() * Math.min(1000, wait));
       await new Promise(res => setTimeout(res, wait + jitter));
       attempt++;
@@ -109,6 +112,9 @@ async function serpApiSearch(q: string, page = 1) {
     console.warn('SerpAPI JSON parse error:', parseErr.message);
     throw new Error(`SerpAPI returned invalid JSON: ${parseErr.message}`);
   }
+  
+  // Map to internal result shape
+  // SerpAPI returns organic_results array
   const items = json.organic_results || json.organic || [];
   const mapped = items.map((it: any) => ({
     title: it.title || it.position_title || '',
@@ -117,8 +123,8 @@ async function serpApiSearch(q: string, page = 1) {
     source: 'serpapi',
     confidence: it.position ? Math.max(0.2, 1 - (it.position / 50)) : 0.5,
     raw: it,
-    entities: extractEntitiesFromSnippet(it.snippet || ''),
-    costEstimate: 0.01
+    entities: extractEntitiesFromSnippet(it.snippet || ''), // lightweight entity extraction (improve as needed)
+    costEstimate: 0.01 // example cost bookkeeping (tune)
   }));
   return { provider: 'serpapi', items: mapped, raw: json };
 }
@@ -126,6 +132,8 @@ async function serpApiSearch(q: string, page = 1) {
 /** Fallback provider: ScraperAPI for specific site scraping */
 async function scraperApiSearch(q: string) {
   if (!SCRAPERAPI_KEY) throw new Error('ScraperAPI not configured');
+  // ScraperAPI is often used for custom targets; here we call a simple engine endpoint for the query.
+  // The actual endpoints and params depend on your ScraperAPI usage — adjust accordingly.
   const url = `http://api.scraperapi.com?api_key=${encodeURIComponent(SCRAPERAPI_KEY)}&q=${encodeURIComponent(q)}&autoparse=true`;
   const res = await fetchWithTimeout(url, {}, DEFAULT_SEARCH_TIMEOUT_MS / 1.5);
   if (!res.ok) {
@@ -144,7 +152,10 @@ async function scraperApiSearch(q: string) {
     console.warn('ScraperAPI JSON parse error:', parseErr.message);
     throw new Error(`ScraperAPI returned invalid JSON: ${parseErr.message}`);
   }
+  
+  // Best-effort mapping
   const candidates: any[] = [];
+  // Many autoparse responses contain parsed results; attempt to pull anchors
   if (Array.isArray(json.articles)) {
     json.articles.forEach((a:any) => {
       candidates.push({
@@ -164,24 +175,27 @@ async function scraperApiSearch(q: string) {
 /** (Optional) Firecrawl usage - placeholder for advanced crawling */
 async function firecrawlSearch(q: string) {
   if (!FIRECRAWL_KEY) throw new Error('Firecrawl not configured');
+  // Implement Firecrawl call if you rely on it in your integration.
+  // This is a placeholder showing how to call typical Firecrawl JS SDK or HTTP endpoints.
+  // For now return empty set to avoid breaking if not configured.
   return { provider: 'firecrawl', items: [], raw: null };
 }
 
-/** Lightweight heuristic entity extraction */
+/** Lightweight heuristic entity extraction — replace/augment with your robust extractor */
 function extractEntitiesFromSnippet(snippet: string) {
   if (!snippet) return [];
   const entities: any[] = [];
-  
+  // phone regex
   const phoneMatch = snippet.match(/(\+?\d{1,2}[-.\s]?)?(\(?\d{3}\)?)[-.\s]?\d{3}[-.\s]?\d{4}/);
   if (phoneMatch) {
     entities.push({ type: 'phone', value: phoneMatch[0], confidence: 0.4 });
   }
-  
+  // email regex
   const emailMatch = snippet.match(/[a-zA-Z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
   if (emailMatch) {
     entities.push({ type: 'email', value: emailMatch[0], confidence: 0.6 });
   }
-  
+  // names (very naive: capitalized words)
   const nameMatches = snippet.match(/\b([A-Z][a-z]{2,}\s[A-Z][a-z]{2,})\b/g);
   if (nameMatches) {
     nameMatches.slice(0,3).forEach((nm: string) => entities.push({ type: 'person', value: nm, confidence: 0.18 }));
@@ -198,11 +212,13 @@ function filterResults(allResults: any[], searchQuery: string) {
     if (Array.isArray(result.entities) && result.entities.some((e:any) => (e.confidence ?? 0) >= SOFT_ENTITY_CONFIDENCE)) return true;
     if (Array.isArray(result.entities) && result.entities.length >= MIN_ENTITIES_ACCEPT) return true;
     if (result.url && result.title && textSimilarity(result.title, searchQuery) > 0.35) return true;
+    // keep results with decent confidence heuristic
     if (typeof result.confidence === 'number' && result.confidence >= 0.3) return true;
     return false;
   });
 }
 
+/** Combine original & recalculated confidences conservatively */
 function combineConfidence(original: number | undefined, recalculated: number) {
   const MIN = 0.05, MAX = 0.99;
   const orig = typeof original === 'number' ? original : MIN;
@@ -210,18 +226,21 @@ function combineConfidence(original: number | undefined, recalculated: number) {
   return Math.min(MAX, Math.max(MIN, combined));
 }
 
+/** intelligent confidence calculator placeholder */
 function calculateIntelligentConfidence(value: string, type: string, searchParams: any) {
+  // Replace with your model/heuristics. For now: short heuristic
   let base = 0.2;
   if (type === 'email') base = 0.6;
   if (type === 'phone') base = 0.4;
   if (type === 'person') base = 0.25;
-  
+  // boost if query includes value tokens
   if (searchParams && searchParams.query && value && textSimilarity(String(searchParams.query), String(value)) > 0.2) {
     base += 0.2;
   }
   return Math.min(0.95, base);
 }
 
+/** Entrypoint */
 serve(async (req) => {
   try {
     const url = new URL(req.url);
@@ -229,9 +248,11 @@ serve(async (req) => {
     const page = Number(url.searchParams.get('page') || '1');
     if (!q) return new Response(JSON.stringify({ error: 'missing query q param' }), { status: 400 });
 
+    // Build deterministic search hash for session matching
     const normalizedParams = JSON.stringify({ q: q.toLowerCase().trim(), page });
     const search_hash = await sha1Hex(normalizedParams);
 
+    // Create session record (search_sessions) with search_params and search_hash
     const sessionPayload = {
       user_id: url.searchParams.get('user_id') || null,
       search_params: { query: q, page, search_hash },
@@ -251,31 +272,37 @@ serve(async (req) => {
     }
     const sessionId = sessionInsert.id;
 
+    // Kick off provider fetches with retries and timeout
     const providers: Array<() => Promise<any>> = [
       () => retryWithBackoff(() => serpApiSearch(q, page), MAX_RETRIES),
       () => retryWithBackoff(() => scraperApiSearch(q), MAX_RETRIES),
       () => retryWithBackoff(() => firecrawlSearch(q), MAX_RETRIES).catch(() => ({ provider: 'firecrawl', items: [], raw: null }))
     ];
 
+    // Run providers in series (prefer serpapi first) — keep provider order deterministic
     const providerResults: any[] = [];
     for (const p of providers) {
       try {
-        const res = await p();
+        const res = await p(); // each provider internally respects timeout
         if (res && Array.isArray(res.items) && res.items.length > 0) providerResults.push(res);
+        // small delay between providers to reduce rate bursts
         await new Promise(r => setTimeout(r, 120));
       } catch (err) {
         console.warn('provider failed', err);
       }
     }
 
+    // Aggregate all provider items into a single allResults array
     let allResults: any[] = [];
     let totalCost = 0;
     for (const pr of providerResults) {
       const items = pr.items || [];
       allResults = allResults.concat(items);
+      // accumulate any cost estimates
       totalCost += items.reduce((s:any, it:any) => s + (it.costEstimate || 0), 0);
     }
 
+    // If no results from providers, return helpful message and mark session
     if (!allResults.length) {
       await supabase
         .from('search_sessions')
@@ -284,6 +311,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true, results: [], rawResults: [], filteredOutCount: 0, sessionId, totalCost }), { status: 200 });
     }
 
+    // Optionally enhance results with recalculated confidence
     const enhancedResults = allResults.map((result) => {
       if (Array.isArray(result.entities) && result.entities.length > 0) {
         result.entities = result.entities.map((entity:any) => {
@@ -295,9 +323,11 @@ serve(async (req) => {
       return result;
     });
 
+    // Adaptive filtering
     const filtered = filterResults(enhancedResults, q);
     const filteredOutCount = enhancedResults.length - filtered.length;
 
+    // Prepare results payload and insert to DB. Use deterministic result_hash to map back
     const resultsPayload = await Promise.all(enhancedResults.map(async (r, idx) => {
       const title = normalizeText(r.title) || null;
       const urlVal = normalizeText(r.url) || null;
@@ -315,6 +345,7 @@ serve(async (req) => {
       };
     }));
 
+    // Insert results and return IDs + result_hash
     const { data: insertedResults, error: insertResErr } = await supabase
       .from('search_results')
       .insert(resultsPayload)
@@ -322,15 +353,18 @@ serve(async (req) => {
 
     if (insertResErr) {
       console.error('failed inserting results', insertResErr);
+      // mark session partial failure but do not abort
       await supabase.from('search_sessions').update({ status: 'results_insert_failed', finished_at: new Date().toISOString() }).eq('id', sessionId);
       return new Response(JSON.stringify({ error: 'failed inserting results', details: insertResErr }), { status: 500 });
     }
 
+    // Build mapping from result_hash -> id
     const resultIdByHash: Record<string, number> = {};
     for (const row of insertedResults as any[]) {
       if (row.result_hash && row.id) resultIdByHash[row.result_hash] = row.id;
     }
 
+    // Build extracted entities payload using mapping
     const extractedEntitiesPayload: any[] = [];
     for (let idx = 0; idx < enhancedResults.length; idx++) {
       const r = enhancedResults[idx];
@@ -355,15 +389,18 @@ serve(async (req) => {
       const { error: entitiesErr } = await supabase.from('extracted_entities').insert(extractedEntitiesPayload);
       if (entitiesErr) {
         console.error('failed inserting entities', entitiesErr);
+        // mark session partial
         await supabase.from('search_sessions').update({ status: 'entities_insert_partial', finished_at: new Date().toISOString() }).eq('id', sessionId);
       }
     }
 
+    // Update session status success
     await supabase
       .from('search_sessions')
       .update({ status: 'complete', finished_at: new Date().toISOString(), total_cost: totalCost })
       .eq('id', sessionId);
 
+    // Prepare final results to return to client — prefer filtered results for UI but also provide rawResults & counts
     const finalResults = await Promise.all(filtered.map(async (r:any) => ({
       title: r.title,
       snippet: r.snippet,
@@ -384,6 +421,7 @@ serve(async (req) => {
     }), { status: 200 });
   } catch (err: any) {
     console.error('search-proxy error', err);
+    // Return structured error
     return new Response(JSON.stringify({
       success: false,
       error: err?.message || String(err),
