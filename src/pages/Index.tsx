@@ -3,7 +3,7 @@ import { NavigationTabs } from '@/components/NavigationTabs';
 import { EthicalDisclaimer } from '@/components/EthicalDisclaimer';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { IntroductionTab } from '@/components/tabs/IntroductionTab';
-import { EnhancedBasicSearchTab } from '@/components/tabs/EnhancedBasicSearchTab';
+import EnhancedBasicSearchTab from '@/components/tabs/EnhancedBasicSearchTab';
 import { BasicSearchTab } from '@/components/tabs/BasicSearchTab';
 import { SocialSearchTab } from '@/components/tabs/SocialSearchTab';
 import { EnhancedPhoneValidationTab } from '@/components/tabs/EnhancedPhoneValidationTab';

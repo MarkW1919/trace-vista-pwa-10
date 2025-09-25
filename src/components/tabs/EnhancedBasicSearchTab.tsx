@@ -61,14 +61,7 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
 }) => {
   const { toast } = useToast();
   const { user, isAuthenticated, sessionValid, refreshSession } = useAuth();
-  const { 
-    setSearchResults, 
-    setExtractedEntities, 
-    searchHistory, 
-    addToSearchHistory,
-    currentSearchQuery,
-    setCurrentSearchQuery 
-  } = useSkipTracing();
+  const { state, dispatch } = useSkipTracing();
   
   const [searchParams, setSearchParams] = useState<SearchParams>({ query: '', page: 1 });
   const [searchState, setSearchState] = useState<SearchState>({ isSearching: false, error: null, results: [] });
@@ -244,6 +237,10 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
       // Clear local persisted snapshot as it completed
       try { localStorage.removeItem(STORAGE_KEY); } catch (err) { /* ignore */ }
 
+      // Update global context with dispatch actions
+      dispatch({ type: 'ADD_RESULTS', payload: results });
+      dispatch({ type: 'ADD_TO_HISTORY', payload: `Search: ${searchParams.query}` });
+
       // show helpful note if items were filtered
       if (filteredOutCount && filteredOutCount > 0) {
         toast({
@@ -274,10 +271,11 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
 
   return (
     <div className="space-y-6">
-      <ConsentWarning />
-      <AuthComponent />
-      <ApiKeyManager />
-      <SearchHistory />
+        <ConsentWarning />
+        <AuthComponent />
+        <ApiKeyManager />
+        
+        {state.searchHistory.length > 0 && <SearchHistory />}
       
       <Card>
         <CardHeader>
@@ -386,7 +384,7 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
 
       {/* Low Results Warning */}
       {searchState.results.length > 0 && searchState.results.length < 3 && (
-        <LowResultsWarning />
+        <LowResultsWarning resultCount={searchState.results.length} />
       )}
 
       {/* Results */}
@@ -394,8 +392,7 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
         <>
           <SearchResults 
             results={searchState.results} 
-            searchQuery={searchParams.query}
-            onNavigateToReport={onNavigateToReport}
+            onViewReport={onNavigateToReport}
           />
           
           <div className="text-center py-4">
