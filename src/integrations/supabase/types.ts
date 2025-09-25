@@ -97,6 +97,13 @@ export type Database = {
             referencedRelation: "search_sessions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_extracted_entities_result"
+            columns: ["source_result_id"]
+            isOneToOne: false
+            referencedRelation: "search_results"
+            referencedColumns: ["id"]
+          },
         ]
       }
       search_results: {

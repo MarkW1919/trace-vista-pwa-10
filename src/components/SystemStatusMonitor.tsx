@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from '@/contexts/AuthContext';
 import { validateSessionHealth } from '@/utils/authUtils';
+import { TestSearchComponent } from '@/components/TestSearchComponent';
 
 interface SystemStatus {
   searchSessions: {
@@ -472,6 +473,11 @@ export const SystemStatusMonitor = () => {
               </Badge>
             </div>
           </div>
+        </div>
+
+        {/* Test Search Component */}
+        <div className="mt-8">
+          <TestSearchComponent />
         </div>
       </CardContent>
     </Card>
