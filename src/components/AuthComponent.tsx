@@ -12,7 +12,7 @@ import {
   CheckCircle, Mail, Lock, UserPlus 
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
 interface AuthComponentProps {
   className?: string;
@@ -20,6 +20,7 @@ interface AuthComponentProps {
 
 export const AuthComponent = ({ className = '' }: AuthComponentProps) => {
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(false);
   const [email, setEmail] = useState('');
@@ -29,26 +30,13 @@ export const AuthComponent = ({ className = '' }: AuthComponentProps) => {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check initial auth state
-    const checkAuth = async () => {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser();
-        if (error) throw error;
-        setUser(user);
-      } catch (error) {
-        console.error('Auth check error:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAuth();
-
-    // Listen for auth changes
+    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         console.log('Auth state change:', event, session?.user?.email);
+        setSession(session);
         setUser(session?.user ?? null);
+        setLoading(false);
         
         if (event === 'SIGNED_IN') {
           toast({
@@ -65,6 +53,16 @@ export const AuthComponent = ({ className = '' }: AuthComponentProps) => {
         }
       }
     );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Session check error:', error);
+      }
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
 
     return () => subscription.unsubscribe();
   }, [toast]);
