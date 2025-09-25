@@ -97,7 +97,18 @@ async function serpApiSearch(q: string, page = 1) {
     const text = await res.text();
     throw new Error(`SerpAPI error ${res.status}: ${text}`);
   }
-  const json = await res.json();
+  
+  let json;
+  try {
+    const text = await res.text();
+    if (!text.trim()) {
+      throw new Error('Empty response from SerpAPI');
+    }
+    json = JSON.parse(text);
+  } catch (parseErr: any) {
+    console.warn('SerpAPI JSON parse error:', parseErr.message);
+    throw new Error(`SerpAPI returned invalid JSON: ${parseErr.message}`);
+  }
   const items = json.organic_results || json.organic || [];
   const mapped = items.map((it: any) => ({
     title: it.title || it.position_title || '',
@@ -121,7 +132,18 @@ async function scraperApiSearch(q: string) {
     const txt = await res.text();
     throw new Error(`ScraperAPI error ${res.status}: ${txt}`);
   }
-  const json = await res.json();
+  
+  let json;
+  try {
+    const text = await res.text();
+    if (!text.trim()) {
+      throw new Error('Empty response from ScraperAPI');
+    }
+    json = JSON.parse(text);
+  } catch (parseErr: any) {
+    console.warn('ScraperAPI JSON parse error:', parseErr.message);
+    throw new Error(`ScraperAPI returned invalid JSON: ${parseErr.message}`);
+  }
   const candidates: any[] = [];
   if (Array.isArray(json.articles)) {
     json.articles.forEach((a:any) => {
