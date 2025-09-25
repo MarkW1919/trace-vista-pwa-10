@@ -35,6 +35,33 @@ export const SystemStatusMonitor = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const getScraperAPIStatus = () => {
+    const scraperApiKey = localStorage.getItem('scraperapi_key');
+    if (!scraperApiKey) return "secondary";
+    
+    // Check if key was validated successfully
+    const validationResult = localStorage.getItem('scraperapi_validation');
+    if (validationResult) {
+      const result = JSON.parse(validationResult);
+      return result.valid && result.hasCredits ? "default" : "destructive";
+    }
+    return "secondary";
+  };
+
+  const getScraperAPIStatusText = () => {
+    const scraperApiKey = localStorage.getItem('scraperapi_key');
+    if (!scraperApiKey) return "Not Configured";
+    
+    const validationResult = localStorage.getItem('scraperapi_validation');
+    if (validationResult) {
+      const result = JSON.parse(validationResult);
+      if (result.valid && result.hasCredits) return "Active";
+      if (result.valid && !result.hasCredits) return "No Credits";
+      return "Invalid Key";
+    }
+    return "Needs Testing";
+  };
+
   const loadSystemStatus = async () => {
     try {
       const currentDate = new Date();
@@ -357,8 +384,8 @@ export const SystemStatusMonitor = () => {
             </div>
             <div className="flex items-center justify-between">
               <span>ScraperAPI Integration</span>
-              <Badge variant={status.extractedEntities.total > 10 ? "default" : "secondary"}>
-                {status.extractedEntities.total > 10 ? "Functional" : "Needs Testing"}
+              <Badge variant={getScraperAPIStatus()}>
+                {getScraperAPIStatusText()}
               </Badge>
             </div>
           </div>

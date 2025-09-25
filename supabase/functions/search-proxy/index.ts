@@ -155,7 +155,9 @@ interface SearchRequest {
     dob?: string;
     address?: string;
   };
-  searchMode: 'basic' | 'deep' | 'targeted' | 'enhanced';
+  searchMode: 'basic' | 'deep' | 'enhanced' | 'targeted' | 'comprehensive';
+  enableScraperAPI?: boolean;
+  scraperApiKey?: string;
   useEmailOsint?: boolean;
 }
 
@@ -269,10 +271,10 @@ serve(async (req) => {
     const allResults: SearchResult[] = [];
     let totalCost = 0;
 
-    // Get API keys from Supabase secrets
+    // Get API keys from Supabase secrets and request body
     const serpApiKey = Deno.env.get('SERPAPI_API_KEY');
     const hunterApiKey = Deno.env.get('HUNTER_API_KEY');
-    const scraperApiKey = Deno.env.get('SCRAPERAPI_API_KEY');
+    const scraperApiKey = searchRequest.scraperApiKey || Deno.env.get('SCRAPERAPI_API_KEY');
 
     if (!serpApiKey) {
       console.error('SerpAPI key validation failed: key not configured in Supabase secrets');
@@ -296,8 +298,17 @@ serve(async (req) => {
     });
 
     // Initialize ScraperAPI integration for enhanced data collection
-    const useScraperAPI = !!scraperApiKey && (searchRequest.searchMode === 'enhanced' || searchRequest.searchMode === 'targeted');
-    console.log(`ScraperAPI integration: ${useScraperAPI ? 'enabled' : 'disabled'} for mode: ${searchRequest.searchMode}`);
+    const useScraperAPI = !!scraperApiKey && (
+      searchRequest.searchMode === 'enhanced' || 
+      searchRequest.searchMode === 'targeted' ||
+      searchRequest.searchMode === 'comprehensive' ||
+      (searchRequest.searchMode === 'basic' && searchRequest.enableScraperAPI)
+    );
+    console.log(`ScraperAPI integration: ${useScraperAPI ? 'enabled' : 'disabled'} for mode: ${searchRequest.searchMode}`, {
+      hasScraperApiKey: !!scraperApiKey,
+      keySource: searchRequest.scraperApiKey ? 'request' : 'environment',
+      mode: searchRequest.searchMode
+    });
 
     let scraperApiResults: SearchResult[] = [];
     let scraperApiCost = 0;
@@ -651,7 +662,7 @@ const AREA_CODE_REGIONS: Record<string, { state: string; region: string; countie
 // OPTIMIZED search query generation - reduced for performance
 function generateOptimizedSearchQueries(
   params: SearchRequest['searchParams'], 
-  mode: 'basic' | 'deep' | 'targeted' | 'enhanced'
+  mode: 'basic' | 'deep' | 'targeted' | 'enhanced' | 'comprehensive'
 ): Array<{ query: string; category: string }> {
   const queries: Array<{ query: string; category: string }> = [];
   const { name, city, state, phone, email, address } = params;
@@ -728,10 +739,18 @@ function generateOptimizedSearchQueries(
     queries.push({ query: `${name} bankruptcy court ${state}`, category: 'Financial Records' });
     queries.push({ query: `${name} obituary family ${state}`, category: 'Family Records' });
     queries.push({ query: `${name} relatives associates`, category: 'Associates' });
+  } else if (mode === 'comprehensive') {
+    // Comprehensive mode - includes everything
+    queries.push({ query: `${name} ${city} ${state} phone directory`, category: 'Directory' });
+    queries.push({ query: `${name} ${city} social media profile`, category: 'Social Media' });
+    queries.push({ query: `${name} arrest records ${state}`, category: 'Legal Records' });
+    queries.push({ query: `${name} bankruptcy court ${state}`, category: 'Financial Records' });
+    queries.push({ query: `${name} obituary family ${state}`, category: 'Family Records' });
+    queries.push({ query: `${name} relatives associates`, category: 'Associates' });
   }
 
   // OPTIMIZED: Reduced limits for better performance and timeout prevention
-  const limits = { basic: 6, deep: 8, targeted: 10, enhanced: 8 };
+  const limits = { basic: 6, deep: 8, targeted: 10, enhanced: 8, comprehensive: 12 };
   return queries.slice(0, limits[mode]);
 }
 

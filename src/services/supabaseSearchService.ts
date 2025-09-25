@@ -59,7 +59,9 @@ export class SupabaseSearchService {
             : searchParams.city || searchParams.state,
           searchParams,
           searchMode,
-          useEmailOsint
+          useEmailOsint,
+          scraperApiKey: localStorage.getItem('scraperapi_key'), // Pass ScraperAPI key for enhanced scraping
+          enableScraperAPI: !!localStorage.getItem('scraperapi_key') && localStorage.getItem('scraperapi_validation') && JSON.parse(localStorage.getItem('scraperapi_validation') || '{}').valid
         }
       });
 

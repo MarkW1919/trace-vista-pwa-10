@@ -51,10 +51,13 @@ export const ScraperAPIManager: React.FC<ScraperAPIManagerProps> = ({ onApiKeyUp
       
       if (result.valid) {
         localStorage.setItem('scraperapi_key', key);
+        localStorage.setItem('scraperapi_validation', JSON.stringify(result));
         console.log('API key valid, fetching credit info...');
         const creditInfo = await ScraperAPIService.getCreditInfo(key);
         setCreditInfo(creditInfo);
         console.log('Credit info updated:', creditInfo);
+      } else {
+        localStorage.setItem('scraperapi_validation', JSON.stringify(result));
       }
       
       onApiKeyUpdate?.(result.valid && result.hasCredits);
