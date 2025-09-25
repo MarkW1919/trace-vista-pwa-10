@@ -1,1 +1,10 @@
 project_id = "ispnfhpkvzkrfkslwckb"
+
+[functions.search-proxy]
+verify_jwt = true
+
+[functions.test-api-keys]
+verify_jwt = true
+
+[functions.scraperapi-health]
+verify_jwt = false

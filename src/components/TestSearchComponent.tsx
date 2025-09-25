@@ -21,29 +21,50 @@ export const TestSearchComponent = () => {
     try {
       console.log('🧪 Starting test search with query:', searchQuery);
       console.log('🔑 User ID:', '5d893671-c8a9-44ea-a05d-011852c9b2dc');
+      console.log('🏗️ Supabase client initialized');
       
-      // Call the search-proxy edge function directly using URL parameters instead of body
-      const searchParams = new URLSearchParams({
-        q: searchQuery,
-        page: '1',
-        user_id: '5d893671-c8a9-44ea-a05d-011852c9b2dc'
+      setProgress(20);
+      
+      // Check if we have a valid session first
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log('🔒 Session check:', { 
+        hasSession: !!session, 
+        sessionError,
+        userId: session?.user?.id,
+        email: session?.user?.email 
       });
       
-      console.log('📡 Calling search-proxy with params:', searchParams.toString());
+      if (sessionError) {
+        throw new Error(`Session error: ${sessionError.message}`);
+      }
       
+      if (!session) {
+        throw new Error('No active session found. Please sign in.');
+      }
+      
+      setProgress(30);
+      
+      console.log('📡 Calling search-proxy edge function...');
+      
+      // Call the search-proxy edge function with explicit error handling
       const { data, error } = await supabase.functions.invoke('search-proxy', {
         body: {
           q: searchQuery,
           page: 1,
-          user_id: '5d893671-c8a9-44ea-a05d-011852c9b2dc'
+          user_id: session.user.id
+        },
+        headers: {
+          'Content-Type': 'application/json',
         }
       });
 
       setProgress(50);
 
+      console.log('📊 Function response:', { data, error });
+
       if (error) {
-        console.error('❌ Search function error:', error);
-        throw new Error(`Search function failed: ${error.message}`);
+        console.error('❌ Edge function error:', error);
+        throw new Error(`Edge function error: ${error.message || JSON.stringify(error)}`);
       }
 
       setProgress(80);
