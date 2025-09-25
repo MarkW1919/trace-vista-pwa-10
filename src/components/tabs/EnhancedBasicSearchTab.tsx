@@ -1,765 +1,413 @@
-import React, { useState } from 'react';
+// src/components/tabs/EnhancedBasicSearchTab.tsx
+// React + TypeScript component for the Enhanced Basic Search tab.
+// Replaces window.location.reload() behavior, persists search state across auth refresh,
+// provides classified error handling, and deterministic progress phases.
+
+import React, { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Search, Calendar, MapPin, Phone, Mail, Target, 
-  TrendingUp, Shield, Clock, Database, Zap, ExternalLink, AlertTriangle
-} from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { useSkipTracing } from '@/contexts/SkipTracingContext';
-import { generateGoogleDorks, generateSpecializedDorks, generateReverseQueries, type SearchParams } from '@/utils/googleDorks';
-import { SearchResults } from '@/components/SearchResults';
-import { calculateRelevanceScore } from '@/utils/scoring';
-import { extractEntities } from '@/utils/entityExtraction';
-import { performRealWebSearch } from '@/utils/realWebSearch';
-import { ApiSearchService } from '@/services/apiSearchService';
-import { ApiKeyManager } from '@/components/ApiKeyManager';
-import { ScraperAPIManager } from '@/components/ScraperAPIManager';
-import { SearchResult, BaseEntity } from '@/types/entities';
 import { ConsentWarning } from '@/components/ConsentWarning';
+import { AuthComponent } from '@/components/AuthComponent';
+import { ApiKeyManager } from '@/components/ApiKeyManager';
+import { SearchHistory } from '@/components/SearchHistory';
+import { SearchResults } from '@/components/SearchResults';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { RealOSINTGuide } from '@/components/RealOSINTGuide';
-import { AuthComponent } from '@/components/AuthComponent';
-import { useAuth } from '@/contexts/AuthContext';
-import { ApiKeyTester } from '@/components/ApiKeyTester';
-import { generateMockResults, MockDataConfig } from '@/utils/mockDataGenerator';
-import { SearchHistory } from '@/components/SearchHistory';
 
-interface SearchFormData {
-  name: string;
-  city: string;
-  state: string;
-  dob: string;
-  address: string;
-  phone: string;
-  email: string;
-}
+type SearchParams = {
+  query: string;
+  page?: number;
+  user_id?: string | null;
+};
 
-interface SearchProgress {
-  phase: string;
+type SearchState = {
+  isSearching: boolean;
+  error: string | null;
+  results: any[];
+  rawResults?: any[];
+  filteredOutCount?: number;
+  sessionId?: string | null;
+};
+
+type ProgressState = {
+  phase: 'idle' | 'queued' | 'fetching' | 'extracting' | 'persisting' | 'complete';
   progress: number;
   currentQuery: string;
   totalQueries: number;
   completedQueries: number;
-}
+  startedAt?: number;
+};
 
 interface EnhancedBasicSearchTabProps {
   searchMode?: 'deep' | 'enhanced';
-  onNavigateToReport?: (result: SearchResult) => void;
+  onNavigateToReport?: () => void;
 }
 
-export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', onNavigateToReport }: EnhancedBasicSearchTabProps) => {
-  const [formData, setFormData] = useState<SearchFormData>({
-    name: '',
-    city: '',
-    state: '',
-    dob: '',
-    address: '',
-    phone: '',
-    email: ''
-  });
+const STORAGE_KEY = 'tracevista_pending_search_state_v1';
+const SEARCH_FUNCTION_PATH = '/functions/v1/search-proxy';
+
+const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({ 
+  searchMode = 'enhanced', 
+  onNavigateToReport 
+}) => {
+  const { toast } = useToast();
+  const { user, isAuthenticated, sessionValid, refreshSession } = useAuth();
+  const { 
+    setSearchResults, 
+    setExtractedEntities, 
+    searchHistory, 
+    addToSearchHistory,
+    currentSearchQuery,
+    setCurrentSearchQuery 
+  } = useSkipTracing();
   
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [entities, setEntities] = useState<BaseEntity[]>([]);
-  // PHASE 2 FIX: Improved state management with clear separation of concerns
-  const [searchState, setSearchState] = useState({
-    isSearching: false,
-    searchMode: propSearchMode,
-    useRealAPI: false,
-    hasScraperAPI: false,
-    searchCost: 0,
-    retryCount: 0
-  });
-  const [searchProgress, setSearchProgress] = useState<SearchProgress>({
-    phase: '',
+  const [searchParams, setSearchParams] = useState<SearchParams>({ query: '', page: 1 });
+  const [searchState, setSearchState] = useState<SearchState>({ isSearching: false, error: null, results: [] });
+  const [searchProgress, setSearchProgress] = useState<ProgressState>({
+    phase: 'idle',
     progress: 0,
     currentQuery: '',
-    totalQueries: 0,
-    completedQueries: 0
+    totalQueries: 1,
+    completedQueries: 0,
   });
-  
-  const { dispatch } = useSkipTracing();
-  const { toast } = useToast();
-  const { isAuthenticated, loading: authLoading, sessionValid, refreshSession } = useAuth();
-  
-  // Auto-detect real API availability based on authentication
-  React.useEffect(() => {
-    if (isAuthenticated && sessionValid) {
-      setSearchState(prev => ({ ...prev, useRealAPI: true }));
-    } else if (!authLoading) {
-      setSearchState(prev => ({ ...prev, useRealAPI: false }));
+
+  const inFlightAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    // Restore pending state on mount
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed?.searchParams) setSearchParams(parsed.searchParams);
+        if (parsed?.searchState) setSearchState((prev) => ({ ...prev, ...parsed.searchState }));
+        if (parsed?.searchProgress) setSearchProgress(parsed.searchProgress);
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (err) {
+        console.warn('Failed to restore search state', err);
+      }
     }
-  }, [isAuthenticated, sessionValid, authLoading]);
+  }, []);
 
-  const handleInputChange = (field: keyof SearchFormData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+  // Save to localStorage helper
+  function persistSearchState() {
+    const snapshot = { searchParams, searchState, searchProgress };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    } catch (err) {
+      console.warn('persistSearchState failed', err);
+    }
+  }
 
-  // PHASE 2 FIX: Enhanced search function with intelligent retry and better error handling
-  const performEnhancedSearch = async (retryAttempt = 0) => {
-    if (!formData.name.trim()) {
-      toast({
-        title: "Missing Information",
-        description: "Please enter at least a name to search",
-        variant: "destructive",
-      });
+  // Helper to compute progress percent
+  function computePercent(phaseIndex: number, totalPhases = 4) {
+    return Math.min(100, Math.round(((phaseIndex) / totalPhases) * 100));
+  }
+
+  // Validate/refresh session before API call — attempts server-side refresh before failing
+  async function ensureValidSession() {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) {
+        console.warn('supabase.getSession error', error);
+      }
+      if (!session) {
+        // Attempt session refresh directly with Supabase
+        try {
+          const refreshed = await refreshSession();
+          if (refreshed) {
+            return true;
+          } else {
+            return false;
+          }
+        } catch (err) {
+          console.warn('session refresh attempt failed', err);
+          return false;
+        }
+      }
+      // Optionally check expiry window
+      if (session && (session.expires_at && session.expires_at < Math.floor(Date.now() / 1000) + 60)) {
+        // token expires soon - attempt refresh
+        try {
+          const refreshed = await refreshSession();
+          if (refreshed) {
+            return true;
+          }
+        } catch (err) {
+          console.warn('refresh failed', err);
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('ensureValidSession error', err);
+      return false;
+    }
+  }
+
+  function classifyErrorMessage(err: any) {
+    if (!err) return 'An unexpected error occurred.';
+    const msg = String(err?.message || err);
+    if (/timeout|timed out|AbortError/i.test(msg)) return 'The search timed out. Try again or simplify your query.';
+    if (/auth|401|unauthorized/i.test(msg)) return 'Authentication error. Please sign back in.';
+    if (/rate limit|429/i.test(msg)) return 'Rate limit reached. Try again in a few seconds.';
+    if (/no results/i.test(msg)) return 'No results found for these search parameters.';
+    return msg;
+  }
+
+  async function doSearch(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    // Clear prior state
+    setSearchState({ isSearching: true, error: null, results: [] });
+    setSearchProgress({
+      phase: 'queued',
+      progress: 0,
+      currentQuery: searchParams.query || '',
+      totalQueries: 1,
+      completedQueries: 0,
+      startedAt: Date.now()
+    });
+
+    // ensure authenticated
+    const okSession = await ensureValidSession();
+    if (!okSession) {
+      const msg = 'Please sign in to use real API search';
+      setSearchState(prev => ({ ...prev, isSearching: false, error: msg }));
+      toast({ title: 'Auth required', description: msg, variant: 'destructive' });
       return;
     }
 
-    // Update search state
-    setSearchState(prev => ({ 
-      ...prev, 
-      isSearching: true, 
-      searchMode: searchState.searchMode,
-      retryCount: retryAttempt 
-    }));
-    setResults([]);
-    setEntities([]);
-    dispatch({ type: 'SET_LOADING', payload: { module: 'basicSearch', loading: true } });
+    // Persist state before potentially disruptive operations
+    persistSearchState();
+
+    // Abort any previous inflight
+    if (inFlightAbort.current) {
+      try { inFlightAbort.current.abort(); } catch (err) { /* ignore */ }
+    }
+    const controller = new AbortController();
+    inFlightAbort.current = controller;
 
     try {
-      const searchParams: SearchParams = {
-        name: formData.name,
-        city: formData.city || undefined,
-        state: formData.state || undefined,
-        phone: formData.phone || undefined,
-        email: formData.email || undefined,
-        dob: formData.dob || undefined,
-        address: formData.address || undefined,
-      };
+      // Start fetching
+      setSearchProgress(prev => ({ ...prev, phase: 'fetching', progress: computePercent(1) }));
 
-      // PHASE 2 FIX: Clear separation of educational vs real search logic
-      const allResults: SearchResult[] = [];
-      let totalSearchCost = 0;
-      
-      // Real API Search for authenticated users with valid sessions
-      if (searchState.useRealAPI && isAuthenticated && sessionValid) {
-        console.log('Initiating real API search via Edge Function');
-        
-        setSearchProgress({
-          phase: 'Connecting to Live APIs',
-          progress: 5,
-          currentQuery: 'Authenticating with SerpAPI and ScraperAPI (may take 25-35 seconds)...',
-          totalQueries: 1,
-          completedQueries: 0
-        });
+      const params = new URLSearchParams();
+      params.set('q', searchParams.query || '');
+      params.set('page', String(searchParams.page || 1));
+      // Optionally include user id if available: get from supabase auth
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.id) params.set('user_id', user.id);
 
-        try {
-          // PHASE 2 FIX: Automatic session refresh if needed
-          if (!sessionValid) {
-            console.log('Session invalid, attempting refresh before API call...');
-            const refreshed = await refreshSession();
-            if (!refreshed) {
-              throw new Error('Session refresh failed - please sign in again');
-            }
-          }
+      // call supabase function — note: path depends on your deployment; adjust if necessary
+      const endpoint = `${SEARCH_FUNCTION_PATH}?${params.toString()}`;
+      const resp = await fetch(endpoint, { method: 'GET', signal: controller.signal });
 
-          setSearchProgress(prev => ({
-            ...prev,
-            phase: 'Processing Real API Search',
-            progress: 15,
-            currentQuery: 'Executing comprehensive search with live APIs...'
-          }));
-
-          const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
-          
-          const apiResponse = await SupabaseSearchService.performComprehensiveSearch(
-            {
-              name: formData.name,
-              city: formData.city,
-              state: formData.state,
-              phone: formData.phone,
-              email: formData.email,
-              dob: formData.dob,
-              address: formData.address,
-            },
-            searchState.searchMode,
-            !!formData.email
-          );
-
-          if (apiResponse.success && apiResponse.results.length > 0) {
-            allResults.push(...apiResponse.results);
-            totalSearchCost = apiResponse.cost;
-            
-            setSearchState(prev => ({ ...prev, searchCost: totalSearchCost }));
-
-            setSearchProgress(prev => ({
-              ...prev,
-              phase: 'Processing Live Results',
-              progress: 85,
-              currentQuery: `Successfully processed ${apiResponse.results.length} real results from live APIs`,
-              completedQueries: 1
-            }));
-
-            toast({
-              title: "Live API Search Successful",
-              description: `Found ${apiResponse.results.length} real results. Cost: $${totalSearchCost.toFixed(4)}`,
-              variant: "default",
-            });
-            
-          } else {
-            // PHASE 2 FIX: Intelligent retry logic for API failures
-            if (retryAttempt < 2 && apiResponse.error?.includes('timeout')) {
-              console.log(`API timeout detected, retrying (attempt ${retryAttempt + 1}/2)...`);
-              
-              setSearchProgress(prev => ({
-                ...prev,
-                phase: 'Retrying Search',
-                progress: 25,
-                currentQuery: `Timeout detected, retrying search (attempt ${retryAttempt + 1}/2)...`
-              }));
-
-              // Retry after 2 seconds
-              setTimeout(() => {
-                performEnhancedSearch(retryAttempt + 1);
-              }, 2000);
-              return;
-            }
-            
-            throw new Error(apiResponse.error || 'No real results found from live APIs');
-          }
-          
-        } catch (apiError: any) {
-          console.error('Real API search error:', apiError);
-          
-            // PHASE 2 FIX: Enhanced error categorization and handling with session refresh
-            let errorCategory = 'general';
-            let shouldRetry = false;
-            
-            if (apiError.message?.includes('timeout') || apiError.message?.includes('Timeout')) {
-              errorCategory = 'timeout';
-              shouldRetry = retryAttempt < 2;
-            } else if (apiError.message?.includes('Authentication') || apiError.message?.includes('401') || apiError.message?.includes('Session expired')) {
-              errorCategory = 'auth';
-              shouldRetry = false;
-              // Attempt graceful session refresh
-              if (refreshSession) {
-                console.log('Attempting to refresh authentication session...');
-                refreshSession();
-              }
-            } else if (apiError.message?.includes('credits') || apiError.message?.includes('quota')) {
-              errorCategory = 'credits';
-              shouldRetry = false;
-            }
-
-          if (shouldRetry) {
-            console.log(`Error category: ${errorCategory}, retrying (attempt ${retryAttempt + 1}/2)...`);
-            
-            setSearchProgress(prev => ({
-              ...prev,
-              phase: 'Retrying After Error',
-              progress: 30,
-              currentQuery: `${errorCategory} error detected, retrying (attempt ${retryAttempt + 1}/2)...`
-            }));
-
-            setTimeout(() => {
-              performEnhancedSearch(retryAttempt + 1);
-            }, 3000);
-            return;
-          }
-
-          // Final error handling - no more retries
-          const errorMessages = {
-            timeout: "Search timeout - APIs are taking longer than expected. Please try again in a few moments.",
-            auth: "Authentication error - please sign out and sign in again to refresh your session.",
-            credits: "API credits exhausted - please check your API usage and billing.",
-            general: `Real API search failed: ${apiError.message}. Please check your connection and try again.`
-          };
-
-          toast({
-            title: "API Search Failed", 
-            description: errorMessages[errorCategory as keyof typeof errorMessages],
-            variant: "destructive",
-          });
-          
-          throw apiError;
-        }
-        
-      } else if (!isAuthenticated) {
-        // Educational mode for non-authenticated users
-        console.log('User not authenticated - showing educational content');
-        
-        setSearchProgress({
-          phase: 'Educational Content Generation',
-          progress: 20,
-          currentQuery: 'Generating educational search examples (sign in for real API results)',
-          totalQueries: 8,
-          completedQueries: 0
-        });
-
-        // Generate educational content with proper Google Dorks
-        const allQueries = generateGoogleDorks(searchParams);
-        const selectedQueries = allQueries.slice(0, 8);
-
-        for (let i = 0; i < selectedQueries.length; i++) {
-          const dork = selectedQueries[i];
-          
-          setSearchProgress(prev => ({
-            ...prev,
-            phase: `Educational ${dork.category} Examples`,
-            progress: 20 + ((i + 1) / selectedQueries.length) * 60,
-            currentQuery: `${dork.description} (Educational - Sign in for real results)`,
-            completedQueries: i + 1
-          }));
-
-          try {
-            const searchResults = await performRealWebSearch(dork.query, {
-              name: formData.name,
-              city: formData.city,
-              state: formData.state,
-              phone: formData.phone,
-              email: formData.email,
-              dob: formData.dob,
-              address: formData.address,
-            });
-            allResults.push(...searchResults);
-          } catch (error) {
-            console.warn(`Educational content generation failed for query: ${dork.query}`);
-          }
-        }
-
-      } else {
-        // Authenticated but session issues
-        toast({
-          title: "Session Issue",
-          description: "Authentication session needs refresh. Please sign out and sign in again.",
-          variant: "destructive",
-        });
-        return;
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Search function failed: ${resp.status} ${text}`);
       }
 
-      // PHASE 2 FIX: Enhanced result processing with better progress tracking
-      setSearchProgress(prev => ({
-        ...prev,
-        phase: 'Processing Results',
-        progress: 90,
-        currentQuery: 'Analyzing and scoring results...'
-      }));
+      const json = await resp.json();
 
-      // Extract entities from all results
-      const extractedEntities: BaseEntity[] = [];
-      allResults.forEach(result => {
-        if (result.extractedEntities) {
-          extractedEntities.push(...result.extractedEntities);
-        } else {
-          const resultEntities = extractEntities(result.snippet, { 
-            searchName: formData.name, 
-            searchLocation: formData.city 
-          });
-          extractedEntities.push(...resultEntities);
-          result.extractedEntities = resultEntities;
-        }
+      // Phase: extracting/persisting
+      setSearchProgress(prev => ({ ...prev, phase: 'extracting', progress: computePercent(2) }));
+
+      // If the function provided rawResults/debug info, keep it
+      const results = Array.isArray(json.results) ? json.results : [];
+      const rawResults = Array.isArray(json.rawResults) ? json.rawResults : [];
+      const filteredOutCount = typeof json.filteredOutCount === 'number' ? json.filteredOutCount : 0;
+
+      // Update persisted progress
+      setSearchProgress(prev => ({ ...prev, phase: 'persisting', progress: computePercent(3) }));
+
+      // Finalize UI state
+      setSearchState({
+        isSearching: false,
+        error: null,
+        results,
+        rawResults,
+        filteredOutCount,
+        sessionId: json.sessionId || null
       });
 
-      // Sort results by relevance and confidence
-      const sortedResults = allResults.sort((a, b) => 
-        (b.relevanceScore + b.confidence) - (a.relevanceScore + a.confidence)
-      );
+      setSearchProgress(prev => ({ ...prev, phase: 'complete', progress: 100, completedQueries: prev.totalQueries }));
 
-      setResults(sortedResults);
-      setEntities(extractedEntities);
+      // Clear local persisted snapshot as it completed
+      try { localStorage.removeItem(STORAGE_KEY); } catch (err) { /* ignore */ }
 
-      // Add to global state
-      dispatch({ type: 'ADD_RESULTS', payload: sortedResults });
-      dispatch({ type: 'ADD_ENTITIES', payload: extractedEntities });
-      dispatch({ type: 'ADD_TO_HISTORY', payload: `Enhanced Search: ${formData.name}` });
-      dispatch({ type: 'SET_LOW_RESULTS', payload: sortedResults.length < 3 && isAuthenticated });
-
-      setSearchProgress({
-        phase: 'Complete',
-        progress: 100,
-        currentQuery: `Found ${sortedResults.length} results with ${extractedEntities.length} entities`,
-        totalQueries: 1,
-        completedQueries: 1
-      });
-
-      // Success messages based on search type
-      if (searchState.useRealAPI) {
+      // show helpful note if items were filtered
+      if (filteredOutCount && filteredOutCount > 0) {
         toast({
-          title: "Live Search Complete",
-          description: `Found ${sortedResults.length} real results${totalSearchCost > 0 ? `. Cost: $${totalSearchCost.toFixed(4)}` : ''}`,
-          variant: "default",
-        });
-      } else {
-        toast({
-          title: "Educational Search Complete",
-          description: `Generated ${sortedResults.length} educational examples. Sign in for real API results.`,
-          variant: "default",
+          title: 'Results filtered',
+          description: `${filteredOutCount} results were filtered out by heuristics. Try broadening your query or check advanced settings.`,
+          variant: 'default'
         });
       }
-
-    } catch (error: any) {
-      console.error('Search error:', error);
-      
-      toast({
-        title: "Search Error",
-        description: error?.message || "An error occurred during the search. Please try again.",
-        variant: "destructive",
-      });
-      
+    } catch (err: any) {
+      // classify error message and set state
+      const userMessage = classifyErrorMessage(err);
+      setSearchState(prev => ({ ...prev, isSearching: false, error: userMessage }));
+      setSearchProgress(prev => ({ ...prev, phase: 'complete', progress: prev.progress || 100 }));
+      toast({ title: 'Search failed', description: userMessage, variant: 'destructive' });
     } finally {
-      setSearchState(prev => ({ ...prev, isSearching: false }));
-      dispatch({ type: 'SET_LOADING', payload: { module: 'basicSearch', loading: false } });
-      
-      // Clear progress after a delay
-      setTimeout(() => {
-        setSearchProgress({
-          phase: '',
-          progress: 0,
-          currentQuery: '',
-          totalQueries: 0,
-          completedQueries: 0
-        });
-      }, 3000);
+      // cleanup abort controller
+      inFlightAbort.current = null;
     }
-  };
+  }
 
-  // PHASE 2 FIX: Enhanced reset function with proper state cleanup
-  const handleReset = () => {
-    setFormData({
-      name: '',
-      city: '',
-      state: '',
-      dob: '',
-      address: '',
-      phone: '',
-      email: ''
-    });
-    setResults([]);
-    setEntities([]);
-    setSearchProgress({
-      phase: '',
-      progress: 0,
-      currentQuery: '',
-      totalQueries: 0,
-      completedQueries: 0
-    });
-    setSearchState(prev => ({ 
-      ...prev, 
-      searchCost: 0, 
-      retryCount: 0,
-      isSearching: false 
-    }));
-  };
+  // UI Functions - simple handlers
+  function onQueryChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setSearchParams(prev => ({ ...prev, query: e.target.value }));
+  }
+  function onPageChange(nextPage: number) {
+    setSearchParams(prev => ({ ...prev, page: nextPage }));
+  }
 
   return (
     <div className="space-y-6">
-      <ConsentWarning variant="prominent" />
-      
+      <ConsentWarning />
       <AuthComponent />
+      <ApiKeyManager />
+      <SearchHistory />
       
-      <ApiKeyTester />
-      
-        {/* ScraperAPI Management */}
-        <ScraperAPIManager onApiKeyUpdate={(hasAPI) => 
-          setSearchState(prev => ({ ...prev, hasScraperAPI: hasAPI }))
-        } />
-
-        {/* Search History */}
-        <SearchHistory />
-      
-      <Card className="border-primary/20">
+      <Card>
         <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Search className="h-5 w-5 text-primary" />
-              <span>{searchState.searchMode === 'deep' ? 'Deep Search' : 'Enhanced Pro Search'} with Google Dorks</span>
-              <Badge variant="default" className="ml-2">
-                {searchState.searchMode === 'enhanced' ? 'Maximum Accuracy' : 'Industry-Grade'}
-              </Badge>
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {searchState.searchMode === 'enhanced' 
-                ? 'Most comprehensive OSINT search with intelligent filtering and enhanced accuracy based on training data'
-                : 'Fast comprehensive OSINT search using strategic Google Dorks - Real APIs, no mock data'
-              }
-            </p>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Search Mode Selection */}
-          <Tabs value={searchState.searchMode} onValueChange={(value) => 
-            setSearchState(prev => ({ ...prev, searchMode: value as 'deep' | 'enhanced' }))
-          }>
+          <CardTitle>Enhanced Basic Search</CardTitle>
+          <Tabs value={searchMode} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="deep" className="flex items-center space-x-2">
-                <Database className="h-4 w-4" />
-                <span>Deep Search</span>
-              </TabsTrigger>
-              <TabsTrigger value="enhanced" className="flex items-center space-x-2">
-                <Shield className="h-4 w-4" />
-                <span>Enhanced Pro</span>
-                {searchState.hasScraperAPI && <Badge variant="secondary" className="text-xs px-1">Pro</Badge>}
-              </TabsTrigger>
+              <TabsTrigger value="deep">Deep Search</TabsTrigger>
+              <TabsTrigger value="enhanced">Enhanced Search</TabsTrigger>
             </TabsList>
-            
-            <TabsContent value="deep" className="text-sm text-muted-foreground">
-              Fast comprehensive search with 12 strategic queries including business records, social media, and public data
-            </TabsContent>
-            <TabsContent value="enhanced" className="text-sm text-muted-foreground">
-              {searchState.hasScraperAPI ? (
-                <span className="text-success">Most comprehensive search with 20+ queries, ScraperAPI integration, CAPTCHA bypass, and residential proxies for maximum accuracy</span>
-              ) : (
-                <span className="text-warning">Most comprehensive search mode - configure ScraperAPI for enhanced data collection capabilities</span>
-              )}
-            </TabsContent>
           </Tabs>
-
-          {/* Authentication Status */}
-          <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2">
-                {authLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                    <span className="text-sm text-muted-foreground">Checking authentication...</span>
-                  </>
-                ) : isAuthenticated ? (
-                  <>
-                    <Zap className="h-4 w-4 text-green-500" />
-                    <span className="font-medium">Real API Search Active</span>
-                    <Badge variant="default" className="text-xs bg-green-500">Authenticated</Badge>
-                  </>
-                ) : (
-                  <>
-                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                    <span className="font-medium">Educational Mode</span>
-                    <Badge variant="outline" className="text-xs">Not Authenticated</Badge>
-                  </>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {searchState.useRealAPI ? (
-                  <>Real SerpAPI & Hunter.io results via Edge Function
-                  {searchState.searchCost > 0 && ` • Last search cost: $${searchState.searchCost.toFixed(4)}`}
-                  {searchState.retryCount > 0 && ` • Retry attempts: ${searchState.retryCount}`}</>
-                ) : (
-                  'Sign in above to access real API searches with live data'
-                )}
-              </p>
-            </div>
-            {authLoading && (
-              <Badge variant="outline" className="text-xs">Checking...</Badge>
-            )}
+          
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Badge variant={isAuthenticated ? "default" : "secondary"}>
+              {isAuthenticated ? "Authenticated" : "Demo Mode"}
+            </Badge>
+            <Badge variant={isAuthenticated ? "default" : "outline"}>
+              {isAuthenticated ? "Real API" : "Educational"}
+            </Badge>
           </div>
-
-          {/* Search Form */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="name" className="flex items-center space-x-2">
-                <Search className="h-4 w-4" />
-                <span>Full Name (Consented Subject Only)</span>
-              </Label>
-              <Input
-                id="name"
-                placeholder="e.g., John Doe (with consent)"
-                value={formData.name}
-                onChange={(e) => handleInputChange('name', e.target.value)}
-                className="border-primary/20"
-              />
+        </CardHeader>
+        
+        <CardContent className="space-y-4">
+          <form onSubmit={doSearch} className="grid grid-cols-1 gap-2">
+            <label className="text-sm font-medium">Search Query</label>
+            <input
+              value={searchParams.query}
+              onChange={onQueryChange}
+              placeholder="Search people, phone, email, etc."
+              className="border rounded p-2"
+            />
+            <div className="flex gap-2">
+              <button type="submit" disabled={searchState.isSearching} className="px-4 py-2 rounded bg-slate-800 text-white">
+                {searchState.isSearching ? 'Searching…' : 'Search'}
+              </button>
+              <button type="button" onClick={() => { 
+                setSearchState({ isSearching: false, error: null, results: [] }); 
+                setSearchProgress({ phase: 'idle', progress: 0, currentQuery: '', totalQueries: 1, completedQueries: 0 }); 
+                localStorage.removeItem(STORAGE_KEY); 
+              }} className="px-3 py-2 border rounded">Reset</button>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email" className="flex items-center space-x-2">
-                <Mail className="h-4 w-4" />
-                <span>Email Address</span>
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="e.g., john.doe@example.com"
-                value={formData.email}
-                onChange={(e) => handleInputChange('email', e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="city" className="flex items-center space-x-2">
-                <MapPin className="h-4 w-4" />
-                <span>City</span>
-              </Label>
-              <Input
-                id="city"
-                placeholder="e.g., New York"
-                value={formData.city}
-                onChange={(e) => handleInputChange('city', e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="state">State</Label>
-              <Input
-                id="state"
-                placeholder="e.g., NY"
-                value={formData.state}
-                onChange={(e) => handleInputChange('state', e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone" className="flex items-center space-x-2">
-                <Phone className="h-4 w-4" />
-                <span>Phone Number</span>
-              </Label>
-              <Input
-                id="phone"
-                placeholder="e.g., (555) 123-4567"
-                value={formData.phone}
-                onChange={(e) => handleInputChange('phone', e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="dob" className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4" />
-                <span>Date of Birth</span>
-              </Label>
-              <Input
-                id="dob"
-                type="date"
-                value={formData.dob}
-                onChange={(e) => handleInputChange('dob', e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="address">Last Known Address</Label>
-              <Textarea
-                id="address"
-                placeholder="e.g., 123 Main Street, Apt 4B"
-                value={formData.address}
-                onChange={(e) => handleInputChange('address', e.target.value)}
-                rows={2}
-              />
-            </div>
-          </div>
-
-          {/* Search Controls */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button
-              onClick={() => performEnhancedSearch()}
-              disabled={searchState.isSearching || !formData.name.trim()}
-              className="flex-1 bg-primary hover:bg-primary/90"
-            >
-              {searchState.isSearching ? (
-                <>
-                  <Zap className="h-4 w-4 mr-2 animate-pulse" />
-                  {searchState.retryCount > 0 ? `Retrying... (${searchState.retryCount}/2)` : 'Searching...'}
-                </>
-              ) : (
-                <>
-                  <Search className="h-4 w-4 mr-2" />
-                  Run Enhanced Search
-                </>
-              )}
-            </Button>
-            <Button variant="outline" onClick={handleReset} disabled={searchState.isSearching}>
-              Reset Form
-            </Button>
-          </div>
-
-          {/* PHASE 2 FIX: Enhanced progress indicator with real-time API status */}
-          {searchState.isSearching && (
-            <Card className="border-primary/20 bg-primary/5">
-              <CardContent className="pt-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Shield className="h-4 w-4 text-primary" />
-                      <span className="font-medium">{searchProgress.phase}</span>
-                      {searchState.retryCount > 0 && (
-                        <Badge variant="secondary" className="text-xs">
-                          Retry {searchState.retryCount}/2
-                        </Badge>
-                      )}
-                    </div>
-                    <Badge variant="secondary">
-                      {searchProgress.completedQueries}/{searchProgress.totalQueries}
-                    </Badge>
-                  </div>
-                  
-                  <Progress value={searchProgress.progress} className="w-full" />
-                  
-                  <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    <span>{searchProgress.currentQuery}</span>
-                  </div>
-                  
-                  {searchState.useRealAPI && (
-                    <div className="flex items-center space-x-2 text-xs text-muted-foreground">
-                      <Zap className="h-3 w-3" />
-                      <span>Live API Search Active • Estimated time: 25-35 seconds</span>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          </form>
         </CardContent>
       </Card>
 
-      {/* Results Display */}
-      {results.length > 0 && results.length < 5 && (
-        <LowResultsWarning 
-          resultCount={results.length}
-          suggestions={[
-            "Add more specific details (DOB, middle name)",
-            "Try name variations or nicknames", 
-            "Include additional location information",
-            "Check if subject has strong privacy settings",
-            "Verify spelling and try broader queries",
-            "Subject may have limited public digital footprint"
-          ]}
-        />
+      {/* Progress Indicator */}
+      {searchState.isSearching && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>{searchProgress.phase}</span>
+                <span>{searchProgress.progress}%</span>
+              </div>
+              <Progress value={searchProgress.progress} />
+              {searchProgress.currentQuery && (
+                <p className="text-xs text-muted-foreground">
+                  Current: {searchProgress.currentQuery}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Completed: {searchProgress.completedQueries} / {searchProgress.totalQueries || 1}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      <RealOSINTGuide />
+      <div className="text-sm">
+        <div>Phase: <strong>{searchProgress.phase}</strong> — Progress: {searchProgress.progress}%</div>
+        {searchProgress.startedAt && <div className="text-xs text-muted">Started: {new Date(searchProgress.startedAt).toLocaleString()}</div>}
+      </div>
 
-      {results.length > 0 && (
-        <div className="mt-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <Search className="h-5 w-5 mr-2 text-primary" />
-            OSINT Search Sources ({results.length})
-          </h3>
-          
-          <div className="mb-4">
-            <Badge variant="outline" className="mr-2">Manual Investigation Required</Badge>
-            <Badge variant="outline" className="mr-2">{entities.length} entities extracted</Badge>
-            <Badge variant="outline">
-              {results.filter(r => r.confidence > 0).length} high confidence
-            </Badge>
-          </div>
-          
+      {searchState.error && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded">
+          {searchState.error}
+        </div>
+      )}
+
+      {/* Results area — only show "No results" after complete and no results */}
+      {(!searchState.isSearching && searchProgress.phase === 'complete' && (searchState.results?.length || 0) === 0) && (
+        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
+          No real results found. Try adjusting your search parameters.
+        </div>
+      )}
+
+      {/* Progressive results (if any) */}
+      {Array.isArray(searchState.results) && searchState.results.length > 0 && (
+        <div className="space-y-3">
+          {searchState.results.map((r: any, i: number) => (
+            <div key={r.result_hash || r.url || i} className="p-3 border rounded bg-white">
+              <a href={r.url} target="_blank" rel="noreferrer" className="text-lg font-semibold">{r.title || r.url}</a>
+              <div className="text-sm mt-1">{r.snippet}</div>
+              <div className="text-xs mt-2 text-muted">Source: {r.source} — Confidence: {typeof r.confidence === 'number' ? (Math.round(r.confidence * 100) + '%') : '—'}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Raw debug results (collapsible) */}
+      {Array.isArray(searchState.rawResults) && searchState.rawResults.length > 0 && (
+        <details className="mt-2">
+          <summary className="cursor-pointer">Show raw results & debug info</summary>
+          <pre className="max-h-64 overflow-auto text-xs bg-slate-50 p-2 rounded mt-2">{JSON.stringify(searchState.rawResults, null, 2)}</pre>
+        </details>
+      )}
+
+      {/* Low Results Warning */}
+      {searchState.results.length > 0 && searchState.results.length < 3 && (
+        <LowResultsWarning />
+      )}
+
+      {/* Results */}
+      {searchState.results.length > 0 && (
+        <>
           <SearchResults 
-            results={results} 
-            isLoading={false}
-            onViewReport={(result) => {
-              dispatch({ type: 'SET_FILTERED_REPORT', payload: result as any });
-              onNavigateToReport?.(result as any);
-            }}
+            results={searchState.results} 
+            searchQuery={searchParams.query}
+            onNavigateToReport={onNavigateToReport}
           />
           
-          <Card className="mt-6 border-warning/20 bg-warning/5">
-            <CardContent className="pt-6">
-              <div className="flex items-start space-x-3">
-                <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
-                <div>
-                  <h4 className="font-medium text-warning-foreground">Professional OSINT Reminder</h4>
-                  <p className="text-sm text-warning-foreground/80 mt-1">
-                    The links above are starting points. Professional investigators combine multiple sources, 
-                    use specialized databases, apply advanced techniques, and always verify findings through 
-                    cross-referencing. Results quality depends on subject's digital footprint and privacy settings.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+          <div className="text-center py-4">
+            <p className="text-sm text-muted-foreground mb-2">
+              Remember: Always verify information and respect privacy laws when conducting OSINT research.
+            </p>
+            <RealOSINTGuide />
+          </div>
+        </>
       )}
     </div>
   );
 };
+
+export default EnhancedBasicSearchTab;
