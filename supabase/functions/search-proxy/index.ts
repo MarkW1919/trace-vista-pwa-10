@@ -215,6 +215,13 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Add overall function timeout (25 seconds)
+  const functionTimeout = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.warn('Function timeout reached (25s)');
+    functionTimeout.abort();
+  }, 25000);
+
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -294,7 +301,7 @@ serve(async (req) => {
     const queries = generateOptimizedSearchQueries(searchRequest.searchParams, searchRequest.searchMode);
     console.log(`Generated ${queries.length} optimized queries for ${searchRequest.searchMode} mode`);
 
-    // PARALLEL PROCESSING: Start ScraperAPI and SerpAPI concurrently
+    // PARALLEL PROCESSING with circuit breaker pattern
     const scraperAPIPromise = useScraperAPI && searchRequest.searchParams.name ? 
       performScraperAPISearchConcurrent(scraperApiKey, searchRequest.searchParams, session.id, user.id, supabase) : 
       Promise.resolve({ results: [], cost: 0 });
@@ -302,12 +309,36 @@ serve(async (req) => {
     // Process SerpAPI searches in PARALLEL BATCHES with timeout
     const serpAPIPromise = performSerpAPISearchesConcurrent(queries, searchRequest, serpApiKey, session.id, user.id, supabase);
 
-    // Wait for both to complete
-    const [serpAPIData, scraperAPIData] = await Promise.all([serpAPIPromise, scraperAPIPromise]);
+    // Circuit breaker: Wait up to 20 seconds for both APIs, then return partial results
+    const [serpAPIData, scraperAPIData] = await Promise.allSettled([
+      Promise.race([
+        serpAPIPromise,
+        new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
+          setTimeout(() => reject(new Error('SerpAPI timeout')), 20000)
+        )
+      ]),
+      Promise.race([
+        scraperAPIPromise,
+        new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
+          setTimeout(() => reject(new Error('ScraperAPI timeout')), 20000)
+        )
+      ])
+    ]);
+
+    // Handle partial results gracefully
+    const serpResults = serpAPIData.status === 'fulfilled' ? serpAPIData.value : { results: [], cost: 0 };
+    const scraperResults = scraperAPIData.status === 'fulfilled' ? scraperAPIData.value : { results: [], cost: 0 };
     
-    allResults.push(...serpAPIData.results);
-    scraperApiResults = scraperAPIData.results;
-    totalCost += serpAPIData.cost + scraperAPIData.cost;
+    if (serpAPIData.status === 'rejected') {
+      console.warn('SerpAPI failed:', serpAPIData.reason?.message);
+    }
+    if (scraperAPIData.status === 'rejected') { 
+      console.warn('ScraperAPI failed:', scraperAPIData.reason?.message);
+    }
+    
+    allResults.push(...serpResults.results);
+    scraperApiResults = scraperResults.results;
+    totalCost += serpResults.cost + scraperResults.cost;
     // Perform email OSINT if requested and email is provided
     if (searchRequest.useEmailOsint && searchRequest.searchParams.email && hunterApiKey) {
       try {
@@ -591,17 +622,9 @@ serve(async (req) => {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-    
-    return new Response(JSON.stringify({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      results: [],
-      cost: 0,
-      totalResults: 0
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  } finally {
+    // Clear the function timeout
+    clearTimeout(timeoutId);
   }
 });
 
@@ -738,53 +761,37 @@ async function performSerpAPISearchesConcurrent(
   const results: SearchResult[] = [];
   let totalCost = 0;
   
-  // Process queries in parallel batches of 3 to avoid overwhelming the API
-  const batchSize = 3;
-  const batches = [];
+  // Limit queries for better performance (top 6 most relevant)
+  const limitedQueries = queries.slice(0, 6);
+  console.log(`Processing ${limitedQueries.length} prioritized SerpAPI queries...`);
   
-  for (let i = 0; i < queries.length; i += batchSize) {
-    batches.push(queries.slice(i, i + batchSize));
-  }
-  
-  for (const batch of batches) {
-    console.log(`Processing SerpAPI batch of ${batch.length} queries...`);
-    
-    const batchPromises = batch.map(query => 
-      performSingleSerpAPISearch(query, searchRequest, serpApiKey, sessionId, userId, supabase)
-    );
-    
-    try {
-    const batchResults = await Promise.allSettled(
-      batchPromises.map(p => 
-        Promise.race([
-          p,
-          new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
-            setTimeout(() => reject(new Error('Query timeout')), 10000)
-          )
-        ])
+  // Process all queries in parallel with individual timeouts
+  const queryPromises = limitedQueries.map(query => 
+    Promise.race([
+      performSingleSerpAPISearch(query, searchRequest, serpApiKey, sessionId, userId, supabase),
+      new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
+        setTimeout(() => reject(new Error(`Query timeout: ${query.query}`)), 6000)
       )
-    );
+    ])
+  );
+  
+  try {
+    const queryResults = await Promise.allSettled(queryPromises);
     
-    batchResults.forEach((result, index) => {
+    queryResults.forEach((result, index) => {
       if (result.status === 'fulfilled' && result.value) {
         results.push(...result.value.results);
         totalCost += result.value.cost;
       } else {
-        console.error(`Query "${batch[index].query}" failed:`, result.status === 'rejected' ? result.reason : 'Unknown error');
+        console.warn(`Query "${limitedQueries[index].query}" failed:`, 
+          result.status === 'rejected' ? result.reason?.message : 'Unknown error');
       }
     });
-      
-      // Small delay between batches
-      if (batches.indexOf(batch) < batches.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-      
-    } catch (error) {
-      console.error('Batch processing error:', error);
-    }
+  } catch (error) {
+    console.error('SerpAPI batch processing error:', error);
   }
   
-  console.log(`SerpAPI concurrent processing completed: ${results.length} results, $${totalCost.toFixed(4)} cost`);
+  console.log(`SerpAPI processing completed: ${results.length} results, $${totalCost.toFixed(4)} cost`);
   return { results, cost: totalCost };
 }
 
@@ -812,9 +819,9 @@ async function performSingleSerpAPISearch(
     
     const params = new URLSearchParams(searchParams);
     
-    // 8-second timeout per individual request
+    // 5-second timeout per individual request
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     
     try {
       const response = await fetch(`https://serpapi.com/search?${params}`, {
@@ -915,7 +922,7 @@ async function performScraperAPISearchConcurrent(
         const scrapeResult: any = await Promise.race([
           performScraperAPISearch(url, platform, scraperApiKey),
           new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('ScraperAPI timeout')), 15000)
+            setTimeout(() => reject(new Error('ScraperAPI timeout')), 10000)
           )
         ]);
         

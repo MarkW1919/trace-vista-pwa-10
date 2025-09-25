@@ -28,6 +28,7 @@ import { RealOSINTGuide } from '@/components/RealOSINTGuide';
 import { AuthComponent } from '@/components/AuthComponent';
 import { useAuth } from '@/contexts/AuthContext';
 import { ApiKeyTester } from '@/components/ApiKeyTester';
+import { generateMockResults, MockDataConfig } from '@/utils/mockDataGenerator';
 import { SearchHistory } from '@/components/SearchHistory';
 
 interface SearchFormData {
@@ -151,7 +152,7 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
           ...prev,
           phase: 'Real API Search',
           progress: 10,
-          currentQuery: 'Calling SerpAPI & Hunter.io via Edge Function for live results',
+          currentQuery: 'Connecting to advanced search APIs (this may take 20-30 seconds)...',
           completedQueries: 0
         }));
 
@@ -202,15 +203,52 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
           }
         } catch (error) {
           console.error('Live API search error:', error);
-          toast({
-            title: "API Search Failed", 
-            description: `Real API search failed: ${error.message}. Check API keys and connection.`,
-            variant: "destructive",
-          });
           
-          // For authenticated users, don't fallback to educational content
-          // Just show the error and stop
-          throw error;
+          // Handle timeout errors gracefully
+          if (error.message?.includes('timeout') || error.message?.includes('Timeout') || error.message?.includes('504')) {
+            setSearchProgress(prev => ({
+              ...prev,
+              phase: 'Search Timeout - Using Demo Mode',
+              progress: 50,
+              currentQuery: 'API timeout detected - switching to educational examples...'
+            }));
+            
+            toast({
+              title: "Search Timeout", 
+              description: "The search APIs are taking longer than expected. Showing educational examples instead.",
+              variant: "default",
+            });
+            
+            // Fall back to educational content for timeout scenarios
+            console.log('Falling back to educational content due to timeout');
+            const mockConfig: MockDataConfig = {
+              minResults: 5,
+              maxAugmentation: 3,
+              includeRelatives: true,
+              includeBusinesses: true,
+              includeProperties: true,
+            };
+            const mockResults = generateMockResults({
+              name: formData.name,
+              city: formData.city,
+              state: formData.state,
+              phone: formData.phone,
+              email: formData.email,
+              dob: formData.dob,
+              address: formData.address,
+            }, mockConfig);
+            allResults.push(...mockResults);
+            
+          } else {
+            toast({
+              title: "API Search Failed", 
+              description: `Real API search failed: ${error.message}. Check API keys and connection.`,
+              variant: "destructive",
+            });
+            
+            // For non-timeout errors, don't fallback to educational content
+            throw error;
+          }
         }
       }
       
