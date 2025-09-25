@@ -7,6 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SearchResults } from '@/components/SearchResults';
 import { Search, Calendar, MapPin, Phone } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { SupabaseSearchService } from '@/services/supabaseSearchService';
+import { SearchResult } from '@/types/entities';
+import { useAuth } from '@/contexts/AuthContext';
+import { AuthComponent } from '@/components/AuthComponent';
 
 interface SearchFormData {
   name: string;
@@ -15,320 +19,9 @@ interface SearchFormData {
   dob: string;
   address: string;
   phone: string;
+  email: string;
 }
 
-// Enhanced search function with guaranteed results for educational purposes
-const performSearch = async (formData: SearchFormData) => {
-  const results = [];
-  
-  // Always ensure we have educational data to demonstrate OSINT capabilities
-  const educationalResults = generateEducationalResults(formData);
-  results.push(...educationalResults);
-
-  // Try real web searches as supplementary data
-  try {
-    const realResults = await attemptRealWebSearch(formData);
-    if (realResults.length > 0) {
-      results.push(...realResults);
-    }
-  } catch (error) {
-    console.log('Real search unavailable, using educational data only');
-  }
-
-  // Process all results to extract entities
-  const processedResults = results.map(result => ({
-    ...result,
-    entities: extractEntities(result.snippet, formData.name)
-  }));
-
-  return processedResults;
-};
-
-// Generate educational results based on real OSINT patterns
-const generateEducationalResults = (formData: SearchFormData) => {
-  const results = [];
-  
-  // Google search for public records
-  if (formData.name && formData.city && formData.state) {
-    const searchQuery = `"${formData.name}" ${formData.city} ${formData.state} public records address phone`;
-    results.push({
-      id: `pub_${Date.now()}_1`,
-      title: `${formData.name} - Public Records Search`,
-      snippet: `Search public records for ${formData.name} in ${formData.city}, ${formData.state}. This search includes property records, voter registration, and court documents. Current address: ${formData.address || 'Address on file'}. Phone: ${formData.phone || 'Phone on file'}. Email: ${generateEmail(formData.name)}`,
-      url: `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`,
-      source: 'Google Public Records'
-    });
-  }
-
-  // Social media profiles
-  const socialPlatforms = ['LinkedIn', 'Facebook', 'Instagram'];
-  const randomPlatform = socialPlatforms[Math.floor(Math.random() * socialPlatforms.length)];
-  
-  const socialSearchQuery = `"${formData.name}" ${formData.city} ${randomPlatform.toLowerCase()}`;
-  results.push({
-    id: `social_${Date.now()}_2`,
-    title: `${formData.name} - ${randomPlatform} Search`,
-    snippet: `Search for ${randomPlatform} profiles for ${formData.name} in ${formData.city}, ${formData.state}. Professional profiles often contain current location, employment, and connection information. Use advanced search techniques to find hidden profiles.`,
-    url: `https://www.google.com/search?q=${encodeURIComponent(socialSearchQuery)} site:${randomPlatform.toLowerCase()}.com`,
-    source: `${randomPlatform} Search`
-  });
-
-  // Business directory listing
-  if (Math.random() > 0.3) { // 70% chance
-    const businessQuery = `"${formData.name}" ${formData.city} ${formData.state} business professional`;
-    results.push({
-      id: `biz_${Date.now()}_3`,
-      title: `${formData.name} - Business Directory Search`,
-      snippet: `Search business directories for ${formData.name}. May include LinkedIn profiles, company websites, professional listings, and business registrations. Contact information includes phone ${formData.phone || 'Phone on file'} and business address in ${formData.city}.`,
-      url: `https://www.google.com/search?q=${encodeURIComponent(businessQuery)} site:linkedin.com OR site:yellowpages.com OR site:whitepages.com`,
-      source: 'Business Directory Search'
-    });
-  }
-
-  // Voter registration (if DOB provided)
-  if (formData.dob) {
-    const voterQuery = `"${formData.name}" ${formData.city} ${formData.state} voter registration public records`;
-    results.push({
-      id: `voter_${Date.now()}_4`,
-      title: `${formData.name} - Voter Registration Search`,
-      snippet: `Search voter registration records for ${formData.name} in ${formData.city}, ${formData.state}. Public voter files may contain current address, voting history, and party affiliation. Check state and county databases.`,
-      url: `https://www.google.com/search?q=${encodeURIComponent(voterQuery)} filetype:pdf OR site:gov`,
-      source: 'Voter Records Search'
-    });
-  }
-
-  // Phone number lookup
-  if (formData.phone) {
-    const phoneQuery = `"${formData.phone}" "${formData.name}" reverse phone lookup`;
-    results.push({
-      id: `phone_${Date.now()}_5`,
-      title: `Reverse Phone Lookup - ${formData.phone}`,
-      snippet: `Reverse lookup for phone number ${formData.phone} associated with ${formData.name}. Search includes carrier information, location data, and associated addresses. Check multiple reverse lookup databases.`,
-      url: `https://www.google.com/search?q=${encodeURIComponent(phoneQuery)} site:whitepages.com OR site:truecaller.com OR site:spokeo.com`,
-      source: 'Phone Lookup Search'
-    });
-  }
-
-  // Court records
-  if (Math.random() > 0.6) { // 40% chance
-    const courtQuery = `"${formData.name}" ${formData.state} court records case civil criminal`;
-    results.push({
-      id: `court_${Date.now()}_6`,
-      title: `${formData.name} - Court Records Search`,
-      snippet: `Search court records for ${formData.name} in ${formData.state}. May include civil cases, criminal records, bankruptcy filings, and property disputes. Check both state and federal court databases.`,
-      url: `https://www.google.com/search?q=${encodeURIComponent(courtQuery)} site:gov filetype:pdf OR site:justia.com`,
-      source: 'Court Records Search'
-    });
-  }
-
-  return results;
-};
-
-// Attempt real web search (may fail due to CORS)
-const attemptRealWebSearch = async (formData: SearchFormData) => {
-  const results = [];
-  
-  // Try using public search engines with different approaches
-  try {
-    // Use a public API that allows CORS (if available)
-    const searchQuery = `${formData.name} ${formData.city} ${formData.state}`;
-    
-    // Note: Most real search APIs require keys and have CORS restrictions
-    // This is a placeholder for demonstration
-    
-    return results; // Return empty for now, but structure is in place
-  } catch (error) {
-    console.log('Real search failed:', error);
-    return results;
-  }
-};
-
-// Helper function to generate realistic email
-const generateEmail = (name: string) => {
-  const domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com'];
-  const domain = domains[Math.floor(Math.random() * domains.length)];
-  const username = name.toLowerCase().replace(/\s+/g, '.');
-  return `${username}@${domain}`;
-};
-
-// Helper function to generate username variations
-const generateUsername = (name: string) => {
-  const variations = [
-    name.toLowerCase().replace(/\s+/g, ''),
-    name.toLowerCase().replace(/\s+/g, '.'),
-    name.toLowerCase().replace(/\s+/g, '_'),
-    name.toLowerCase().split(' ')[0] + (name.split(' ')[1] || '').toLowerCase()
-  ];
-  return variations[Math.floor(Math.random() * variations.length)];
-};
-
-// Web search implementation using public APIs and scrapers
-const performWebSearch = async (query: string, formData: SearchFormData) => {
-  const results = [];
-  
-  try {
-    // Use Bing Search API (free tier) or alternative search methods
-    const searchResponse = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(query)}&format=rss`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
-
-    // Since direct web scraping might be blocked by CORS, let's implement a more realistic approach
-    // We'll combine multiple data sources and techniques
-
-    // Public records search simulation based on real patterns
-    const publicRecordsResults = await searchPublicRecords(formData);
-    results.push(...publicRecordsResults);
-
-    // Social media pattern search
-    const socialResults = await searchSocialMediaPatterns(formData);
-    results.push(...socialResults);
-
-    // Business directory search
-    const businessResults = await searchBusinessDirectories(formData);
-    results.push(...businessResults);
-
-  } catch (error) {
-    console.error('Web search error:', error);
-  }
-
-  return results;
-};
-
-// Search public records using known patterns
-const searchPublicRecords = async (formData: SearchFormData) => {
-  const results = [];
-  
-  // Simulate real public records search by checking various public sources
-  const publicSources = [
-    'Voter Registration Records',
-    'Property Records',
-    'Court Records',
-    'Business Licenses'
-  ];
-
-  for (const source of publicSources) {
-    // In a real implementation, this would query actual public databases
-    if (Math.random() > 0.6) { // Simulate finding records
-      results.push({
-        id: `pub_${Date.now()}_${Math.random()}`,
-        title: `${formData.name} - ${source}`,
-        snippet: `Found ${formData.name} in ${source}. Location: ${formData.city}, ${formData.state}. Additional details available through public access.`,
-        url: `https://publicrecords.example.com/${source.toLowerCase().replace(' ', '_')}`,
-        source: source
-      });
-    }
-  }
-
-  return results;
-};
-
-// Search social media using username patterns
-const searchSocialMediaPatterns = async (formData: SearchFormData) => {
-  const results = [];
-  const name = formData.name.toLowerCase();
-  const potentialUsernames = [
-    name.replace(' ', ''),
-    name.replace(' ', '.'),
-    name.replace(' ', '_'),
-    `${name.split(' ')[0]}${name.split(' ')[1] || ''}`,
-    `${name.split(' ')[0]}.${name.split(' ')[1] || ''}`
-  ];
-
-  const platforms = ['LinkedIn', 'Facebook', 'Twitter', 'Instagram'];
-  
-  for (const platform of platforms) {
-    for (const username of potentialUsernames.slice(0, 2)) {
-      // Simulate checking if profiles exist
-      if (Math.random() > 0.7) {
-        results.push({
-          id: `social_${Date.now()}_${Math.random()}`,
-          title: `${formData.name} - ${platform} Profile`,
-          snippet: `Potential ${platform} profile found for ${formData.name}. Username: ${username}. Location matches: ${formData.city}.`,
-          url: `https://${platform.toLowerCase()}.com/${username}`,
-          source: `${platform} Profile`
-        });
-        break; // Only add one result per platform
-      }
-    }
-  }
-
-  return results;
-};
-
-// Search business directories
-const searchBusinessDirectories = async (formData: SearchFormData) => {
-  const results = [];
-  const directories = ['Yellow Pages', 'LinkedIn', 'Better Business Bureau', 'Professional Associations'];
-
-  for (const directory of directories) {
-    if (Math.random() > 0.8) {
-      results.push({
-        id: `biz_${Date.now()}_${Math.random()}`,
-        title: `${formData.name} - ${directory}`,
-        snippet: `Professional listing found in ${directory}. Contact information and business history available. Location: ${formData.city}, ${formData.state}.`,
-        url: `https://${directory.toLowerCase().replace(' ', '')}.com/search/${formData.name}`,
-        source: directory
-      });
-    }
-  }
-
-  return results;
-};
-
-// Extract entities from text using regex patterns
-const extractEntities = (text: string, searchName: string) => {
-  const entities = [];
-  
-  // Extract phone numbers
-  const phoneRegex = /(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/g;
-  const phones = [...text.matchAll(phoneRegex)];
-  phones.forEach(phone => {
-    entities.push({
-      type: 'phone' as const,
-      value: phone[0],
-      confidence: 0.8 + Math.random() * 0.15
-    });
-  });
-
-  // Extract email addresses
-  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
-  const emails = [...text.matchAll(emailRegex)];
-  emails.forEach(email => {
-    entities.push({
-      type: 'email' as const,
-      value: email[0],
-      confidence: 0.75 + Math.random() * 0.2
-    });
-  });
-
-  // Extract addresses
-  const addressRegex = /\d+\s+[A-Za-z0-9\s,.-]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Court|Ct)/gi;
-  const addresses = [...text.matchAll(addressRegex)];
-  addresses.forEach(addr => {
-    entities.push({
-      type: 'address' as const,
-      value: addr[0],
-      confidence: 0.7 + Math.random() * 0.25
-    });
-  });
-
-  // Extract names (excluding the search name)
-  const nameRegex = /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g;
-  const names = [...text.matchAll(nameRegex)];
-  names.forEach(name => {
-    if (name[0].toLowerCase() !== searchName.toLowerCase()) {
-      entities.push({
-        type: 'name' as const,
-        value: name[0],
-        confidence: 0.6 + Math.random() * 0.3
-      });
-    }
-  });
-
-  return entities.slice(0, 5); // Limit to top 5 entities
-};
 
 export const BasicSearchTab = () => {
   const [formData, setFormData] = useState<SearchFormData>({
@@ -337,11 +30,13 @@ export const BasicSearchTab = () => {
     state: '',
     dob: '',
     address: '',
-    phone: ''
+    phone: '',
+    email: ''
   });
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const { isAuthenticated, loading: authLoading } = useAuth();
 
   const handleInputChange = (field: keyof SearchFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -357,18 +52,45 @@ export const BasicSearchTab = () => {
       return;
     }
 
+    if (!isAuthenticated) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to perform searches.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const searchResults = await performSearch(formData);
-      setResults(searchResults);
-      toast({
-        title: "Search Complete",
-        description: `Found ${searchResults.length} potential matches.`,
-      });
+      const searchResults = await SupabaseSearchService.performComprehensiveSearch(
+        {
+          name: formData.name,
+          city: formData.city,
+          state: formData.state,
+          phone: formData.phone,
+          email: formData.email,
+          dob: formData.dob,
+          address: formData.address,
+        },
+        'deep',
+        !!formData.email
+      );
+
+      if (searchResults.success) {
+        setResults(searchResults.results);
+        toast({
+          title: "Search Complete",
+          description: `Found ${searchResults.results.length} results. Cost: $${searchResults.cost.toFixed(4)}`,
+        });
+      } else {
+        throw new Error(searchResults.error || 'Search failed');
+      }
     } catch (error) {
+      console.error('Search error:', error);
       toast({
         title: "Search Error",
-        description: "An error occurred while searching. Please try again.",
+        description: error instanceof Error ? error.message : "An error occurred while searching. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -462,29 +184,44 @@ export const BasicSearchTab = () => {
                 />
               </div>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email Address (optional)</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="example@email.com"
+                value={formData.email}
+                onChange={(e) => handleInputChange('email', e.target.value)}
+              />
+            </div>
           </div>
+
+          {!isAuthenticated && !authLoading && (
+            <div className="mb-4">
+              <AuthComponent />
+            </div>
+          )}
+          
           <Button 
-            onClick={handleSearch}
-            disabled={isLoading || !formData.name.trim()}
-            className="mt-6 w-full bg-gradient-primary hover:opacity-90"
+            onClick={handleSearch} 
+            disabled={isLoading || !formData.name.trim() || !isAuthenticated || authLoading} 
+            className="w-full mt-6"
           >
-            {isLoading ? 'Searching...' : 'Run Search'}
+            {isLoading ? 'Searching...' : (
+              <>
+                <Search className="mr-2 h-4 w-4" />
+                Start Search
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>
 
-      {(results.length > 0 || isLoading) && (
-        <div>
-          <h3 className="text-lg font-semibold mb-4">Search Results</h3>
-          <SearchResults 
-            results={results} 
-            isLoading={isLoading} 
-            onViewReport={(result) => {
-              // Handle report view - you'd typically navigate to report tab here
-              console.log('View report for:', result);
-            }}
-          />
-        </div>
+      {results.length > 0 && (
+        <SearchResults 
+          results={results}
+          onViewReport={() => {}}
+        />
       )}
     </div>
   );
