@@ -20,13 +20,22 @@ export const TestSearchComponent = () => {
     
     try {
       console.log('🧪 Starting test search with query:', searchQuery);
+      console.log('🔑 User ID:', '5d893671-c8a9-44ea-a05d-011852c9b2dc');
       
-      // Call the search-proxy edge function directly  
+      // Call the search-proxy edge function directly using URL parameters instead of body
+      const searchParams = new URLSearchParams({
+        q: searchQuery,
+        page: '1',
+        user_id: '5d893671-c8a9-44ea-a05d-011852c9b2dc'
+      });
+      
+      console.log('📡 Calling search-proxy with params:', searchParams.toString());
+      
       const { data, error } = await supabase.functions.invoke('search-proxy', {
         body: {
           q: searchQuery,
           page: 1,
-          user_id: '5d893671-c8a9-44ea-a05d-011852c9b2dc' // test user ID
+          user_id: '5d893671-c8a9-44ea-a05d-011852c9b2dc'
         }
       });
 

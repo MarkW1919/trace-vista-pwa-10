@@ -244,8 +244,29 @@ function filterResults(allResults: any[], searchQuery: string) {
 serve(async (req) => {
   try {
     const url = new URL(req.url);
-    const q = (url.searchParams.get('q') || url.searchParams.get('query') || '').trim();
-    const page = Number(url.searchParams.get('page') || '1');
+    let q = '';
+    let page = 1;
+    let user_id = null;
+
+    // Handle both GET (URL params) and POST (JSON body) requests
+    if (req.method === 'GET') {
+      q = (url.searchParams.get('q') || url.searchParams.get('query') || '').trim();
+      page = Number(url.searchParams.get('page') || '1');
+      user_id = url.searchParams.get('user_id') || null;
+    } else if (req.method === 'POST') {
+      try {
+        const body = await req.json();
+        q = (body.q || body.query || '').trim();
+        page = Number(body.page || '1');
+        user_id = body.user_id || null;
+      } catch (e) {
+        console.error('Failed to parse JSON body:', e);
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
+      }
+    }
+
+    console.log('🔍 Search request:', { method: req.method, q, page, user_id });
+
     if (!q) return new Response(JSON.stringify({ error: 'missing query q param' }), { status: 400 });
 
     // Build deterministic search hash for session matching
@@ -254,7 +275,7 @@ serve(async (req) => {
 
     // Create session record (search_sessions) with search_params and search_hash
     const sessionPayload = {
-      user_id: url.searchParams.get('user_id') || null,
+      user_id: user_id,
       search_params: { query: q, page, search_hash },
       status: 'running',
       created_at: new Date().toISOString()
