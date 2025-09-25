@@ -69,6 +69,15 @@ export class SupabaseSearchService {
 
       if (error) {
         console.error('Supabase function invocation error:', error);
+        
+        // Check for authentication errors specifically
+        if (error.message?.includes('session_not_found') || error.message?.includes('Authentication failed')) {
+          console.warn('Authentication error detected, session may be invalid');
+          // Force a page reload to trigger auth refresh
+          window.location.reload();
+          throw new Error('Session expired. Please sign in again.');
+        }
+        
         // Try to retrieve results from database as fallback
         return await this.fallbackToSessionResults(searchParams, error.message);
       }

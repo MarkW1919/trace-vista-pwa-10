@@ -3,9 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { AlertCircle, CheckCircle, Clock, Database, Zap, Activity } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, Database, Zap, Activity, Shield, User, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from '@/contexts/AuthContext';
+import { validateSessionHealth } from '@/utils/authUtils';
 
 interface SystemStatus {
   searchSessions: {
@@ -27,10 +29,17 @@ interface SystemStatus {
     thisMonth: number;
     topServices: { service: string; cost: number }[];
   };
+  authStatus: {
+    isAuthenticated: boolean;
+    sessionValid: boolean;
+    userEmail?: string;
+    error?: string;
+  };
 }
 
 export const SystemStatusMonitor = () => {
   const { toast } = useToast();
+  const auth = useAuth();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -130,6 +139,9 @@ export const SystemStatusMonitor = () => {
         .sort((a, b) => b.cost - a.cost)
         .slice(0, 3);
 
+      // Check authentication status
+      const authValidation = await validateSessionHealth();
+
       setStatus({
         searchSessions: sessionStats,
         searchResults: {
@@ -144,6 +156,12 @@ export const SystemStatusMonitor = () => {
           totalSpent,
           thisMonth: monthlySpent,
           topServices
+        },
+        authStatus: {
+          isAuthenticated: auth.isAuthenticated,
+          sessionValid: auth.sessionValid,
+          userEmail: auth.user?.email,
+          error: authValidation.error
         }
       });
     } catch (error) {
@@ -291,6 +309,71 @@ export const SystemStatusMonitor = () => {
               <p className="text-2xl font-bold text-red-600">{status.searchSessions.failed}</p>
             </div>
           )}
+        </div>
+
+        {/* Authentication Status */}
+        <div className="space-y-3">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            Authentication Health
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={`p-3 rounded-lg ${
+              status.authStatus.isAuthenticated && status.authStatus.sessionValid
+                ? 'bg-green-50 dark:bg-green-950/20'
+                : 'bg-red-50 dark:bg-red-950/20'
+            }`}>
+              <div className="flex items-center gap-2 mb-1">
+                {status.authStatus.isAuthenticated && status.authStatus.sessionValid ? (
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                )}
+                <p className={`text-sm font-medium ${
+                  status.authStatus.isAuthenticated && status.authStatus.sessionValid
+                    ? 'text-green-700 dark:text-green-300'
+                    : 'text-red-700 dark:text-red-300'
+                }`}>
+                  Session Status
+                </p>
+              </div>
+              <p className={`text-lg font-bold ${
+                status.authStatus.isAuthenticated && status.authStatus.sessionValid
+                  ? 'text-green-600'
+                  : 'text-red-600'
+              }`}>
+                {status.authStatus.sessionValid ? 'Valid' : 'Invalid'}
+              </p>
+              {status.authStatus.error && (
+                <p className="text-xs text-red-600 mt-1">{status.authStatus.error}</p>
+              )}
+            </div>
+
+            <div className="p-3 rounded-lg bg-muted/30">
+              <div className="flex items-center gap-2 mb-1">
+                <User className="h-4 w-4" />
+                <p className="text-sm font-medium">User Status</p>
+              </div>
+              <p className="text-sm font-medium">
+                {status.authStatus.userEmail || 'Not signed in'}
+              </p>
+              <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                <div>Frontend: {status.authStatus.isAuthenticated ? '✅ Authenticated' : '❌ Not authenticated'}</div>
+                <div>Backend: {status.authStatus.sessionValid ? '✅ Valid session' : '❌ Invalid session'}</div>
+              </div>
+              {!status.authStatus.sessionValid && status.authStatus.isAuthenticated && (
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="mt-2 h-6 px-2 text-xs"
+                  onClick={() => auth.refreshSession?.()}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Refresh
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Data Extraction Status */}
