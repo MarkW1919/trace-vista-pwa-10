@@ -23,6 +23,16 @@ import { SearchResults } from '@/components/SearchResults';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { RealOSINTGuide } from '@/components/RealOSINTGuide';
 
+type SearchFormData = {
+  name: string;
+  city: string;
+  state: string;
+  dob: string;
+  address: string;
+  phone: string;
+  email: string;
+};
+
 type SearchParams = {
   query: string;
   page?: number;
@@ -63,6 +73,15 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
   const { user, isAuthenticated, sessionValid, refreshSession } = useAuth();
   const { state, dispatch } = useSkipTracing();
   
+  const [formData, setFormData] = useState<SearchFormData>({
+    name: '',
+    city: '',
+    state: '',
+    dob: '',
+    address: '',
+    phone: '',
+    email: ''
+  });
   const [searchParams, setSearchParams] = useState<SearchParams>({ query: '', page: 1 });
   const [searchState, setSearchState] = useState<SearchState>({ isSearching: false, error: null, results: [] });
   const [searchProgress, setSearchProgress] = useState<ProgressState>({
@@ -81,7 +100,7 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed?.searchParams) setSearchParams(parsed.searchParams);
+        if (parsed?.formData) setFormData(parsed.formData);
         if (parsed?.searchState) setSearchState((prev) => ({ ...prev, ...parsed.searchState }));
         if (parsed?.searchProgress) setSearchProgress(parsed.searchProgress);
         localStorage.removeItem(STORAGE_KEY);
@@ -93,7 +112,7 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
 
   // Save to localStorage helper
   function persistSearchState() {
-    const snapshot = { searchParams, searchState, searchProgress };
+    const snapshot = { formData, searchState, searchProgress };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch (err) {
@@ -157,14 +176,42 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
     return msg;
   }
 
+  const handleInputChange = (field: keyof SearchFormData, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
   async function doSearch(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    
+    // Validate at least one field is filled
+    const hasInput = formData.name.trim() || formData.email.trim() || formData.phone.trim();
+    if (!hasInput) {
+      toast({
+        title: 'Input Required',
+        description: 'Please provide at least a name, email, or phone number to search.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
     // Clear prior state
     setSearchState({ isSearching: true, error: null, results: [] });
+    
+    // Build search query from form data
+    const queryParts = [
+      formData.name,
+      formData.email,
+      formData.phone,
+      formData.city,
+      formData.state,
+      formData.address
+    ].filter(Boolean);
+    const searchQuery = queryParts.join(' ');
+    
     setSearchProgress({
       phase: 'queued',
       progress: 0,
-      currentQuery: searchParams.query || '',
+      currentQuery: searchQuery,
       totalQueries: 1,
       completedQueries: 0,
       startedAt: Date.now()
@@ -194,8 +241,16 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
       setSearchProgress(prev => ({ ...prev, phase: 'fetching', progress: computePercent(1) }));
 
       const params = new URLSearchParams();
-      params.set('q', searchParams.query || '');
-      params.set('page', String(searchParams.page || 1));
+      params.set('q', searchQuery);
+      params.set('page', '1');
+      // Add individual search parameters for more targeted search
+      if (formData.name) params.set('name', formData.name);
+      if (formData.email) params.set('email', formData.email);
+      if (formData.phone) params.set('phone', formData.phone);
+      if (formData.city) params.set('city', formData.city);
+      if (formData.state) params.set('state', formData.state);
+      if (formData.address) params.set('address', formData.address);
+      if (formData.dob) params.set('dob', formData.dob);
       // Optionally include user id if available: get from supabase auth
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.id) params.set('user_id', user.id);
@@ -239,7 +294,7 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
 
       // Update global context with dispatch actions
       dispatch({ type: 'ADD_RESULTS', payload: results });
-      dispatch({ type: 'ADD_TO_HISTORY', payload: `Search: ${searchParams.query}` });
+      dispatch({ type: 'ADD_TO_HISTORY', payload: `Enhanced Search: ${formData.name || 'Multi-field search'}` });
 
       // show helpful note if items were filtered
       if (filteredOutCount && filteredOutCount > 0) {
@@ -261,13 +316,26 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
     }
   }
 
-  // UI Functions - simple handlers
-  function onQueryChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setSearchParams(prev => ({ ...prev, query: e.target.value }));
-  }
-  function onPageChange(nextPage: number) {
-    setSearchParams(prev => ({ ...prev, page: nextPage }));
-  }
+  const handleReset = () => {
+    setFormData({
+      name: '',
+      city: '',
+      state: '',
+      dob: '',
+      address: '',
+      phone: '',
+      email: ''
+    });
+    setSearchState({ isSearching: false, error: null, results: [] });
+    setSearchProgress({
+      phase: 'idle',
+      progress: 0,
+      currentQuery: '',
+      totalQueries: 1,
+      completedQueries: 0,
+    });
+    try { localStorage.removeItem(STORAGE_KEY); } catch (err) { /* ignore */ }
+  };
 
   return (
     <div className="space-y-6">
@@ -298,25 +366,109 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
         </CardHeader>
         
         <CardContent className="space-y-4">
-          <form onSubmit={doSearch} className="grid grid-cols-1 gap-2">
-            <label className="text-sm font-medium">Search Query</label>
-            <input
-              value={searchParams.query}
-              onChange={onQueryChange}
-              placeholder="Search people, phone, email, etc."
-              className="border rounded p-2"
-            />
-            <div className="flex gap-2">
-              <button type="submit" disabled={searchState.isSearching} className="px-4 py-2 rounded bg-slate-800 text-white">
-                {searchState.isSearching ? 'Searching…' : 'Search'}
-              </button>
-              <button type="button" onClick={() => { 
-                setSearchState({ isSearching: false, error: null, results: [] }); 
-                setSearchProgress({ phase: 'idle', progress: 0, currentQuery: '', totalQueries: 1, completedQueries: 0 }); 
-                localStorage.removeItem(STORAGE_KEY); 
-              }} className="px-3 py-2 border rounded">Reset</button>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Full Name *</Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => handleInputChange('name', e.target.value)}
+                placeholder="John Smith"
+                disabled={searchState.isSearching}
+                maxLength={100}
+              />
             </div>
-          </form>
+            
+            <div className="space-y-2">
+              <Label htmlFor="email">Email Address</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => handleInputChange('email', e.target.value)}
+                placeholder="john@example.com"
+                disabled={searchState.isSearching}
+                maxLength={255}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone Number</Label>
+              <Input
+                id="phone"
+                value={formData.phone}
+                onChange={(e) => handleInputChange('phone', e.target.value)}
+                placeholder="(555) 123-4567"
+                disabled={searchState.isSearching}
+                maxLength={20}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="city">City</Label>
+              <Input
+                id="city"
+                value={formData.city}
+                onChange={(e) => handleInputChange('city', e.target.value)}
+                placeholder="Los Angeles"
+                disabled={searchState.isSearching}
+                maxLength={100}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="state">State</Label>
+              <Input
+                id="state"
+                value={formData.state}
+                onChange={(e) => handleInputChange('state', e.target.value)}
+                placeholder="CA"
+                disabled={searchState.isSearching}
+                maxLength={50}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="dob">Date of Birth</Label>
+              <Input
+                id="dob"
+                type="date"
+                value={formData.dob}
+                onChange={(e) => handleInputChange('dob', e.target.value)}
+                disabled={searchState.isSearching}
+              />
+            </div>
+            
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="address">Address</Label>
+              <Input
+                id="address"
+                value={formData.address}
+                onChange={(e) => handleInputChange('address', e.target.value)}
+                placeholder="123 Main St, Los Angeles, CA 90210"
+                disabled={searchState.isSearching}
+                maxLength={200}
+              />
+            </div>
+          </div>
+          
+          <div className="flex gap-2 pt-4">
+            <Button 
+              onClick={doSearch} 
+              disabled={searchState.isSearching}
+              className="flex-1"
+              type="submit"
+            >
+              {searchState.isSearching ? 'Searching...' : 'Run Enhanced Search'}
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handleReset}
+              disabled={searchState.isSearching}
+            >
+              Reset Form
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
