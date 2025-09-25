@@ -107,6 +107,7 @@ export type Database = {
           id: string
           query_used: string | null
           relevance_score: number | null
+          result_hash: string | null
           result_type: string
           session_id: string
           snippet: string | null
@@ -122,6 +123,7 @@ export type Database = {
           id?: string
           query_used?: string | null
           relevance_score?: number | null
+          result_hash?: string | null
           result_type?: string
           session_id: string
           snippet?: string | null
@@ -137,6 +139,7 @@ export type Database = {
           id?: string
           query_used?: string | null
           relevance_score?: number | null
+          result_hash?: string | null
           result_type?: string
           session_id?: string
           snippet?: string | null
