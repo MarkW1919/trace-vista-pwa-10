@@ -18,7 +18,7 @@ import { ConsentWarning } from '@/components/ConsentWarning';
 import { AuthComponent } from '@/components/AuthComponent';
 import { ApiKeyManager } from '@/components/ApiKeyManager';
 import { SearchHistory } from '@/components/SearchHistory';
-import { SearchResults } from '@/components/SearchResults';
+import SearchResults from '@/components/SearchResults';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { RealOSINTGuide } from '@/components/RealOSINTGuide';
 
@@ -348,8 +348,10 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
       {results.length > 0 && (
         <>
           <SearchResults 
-            results={results} 
-            onViewReport={onNavigateToReport}
+            results={results}
+            rawResults={rawResults}
+            filteredOutCount={filteredOutCount}
+            loading={isSearching}
           />
           
           <div className="text-center py-4">

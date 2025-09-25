@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { SearchResults } from '@/components/SearchResults';
+import SearchResults from '@/components/SearchResults';
 import { Search, Calendar, MapPin, Phone } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { SupabaseSearchService } from '@/services/supabaseSearchService';
@@ -220,7 +220,7 @@ export const BasicSearchTab = () => {
       {results.length > 0 && (
         <SearchResults 
           results={results}
-          onViewReport={() => {}}
+          loading={isLoading}
         />
       )}
     </div>
