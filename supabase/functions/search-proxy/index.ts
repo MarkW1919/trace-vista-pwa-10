@@ -275,12 +275,17 @@ serve(async (req) => {
     const scraperApiKey = Deno.env.get('SCRAPERAPI_API_KEY');
 
     if (!serpApiKey) {
+      console.error('SerpAPI key validation failed: key not configured in Supabase secrets');
       throw new Error('SerpAPI key not configured in Supabase secrets');
     }
     
-    // Validate API key format
-    if (serpApiKey.length < 20 || !/^[a-zA-Z0-9_\-\.]+$/.test(serpApiKey)) {
-      throw new Error('Invalid SerpAPI key format detected');
+    // Basic API key length validation (let SerpAPI validate its own format)
+    if (serpApiKey.length < 10) {
+      console.error('SerpAPI key validation failed:', {
+        keyLength: serpApiKey.length,
+        minRequired: 10
+      });
+      throw new Error('SerpAPI key is too short (minimum 10 characters required)');
     }
     
     console.log('API Keys status:', {
@@ -831,13 +836,31 @@ async function performSingleSerpAPISearch(
       clearTimeout(timeoutId);
       
       if (!response.ok) {
-        console.error(`SerpAPI error for "${query.query}": ${response.status}`);
+        let errorDetails = '';
+        try {
+          const errorData = await response.text();
+          errorDetails = errorData.substring(0, 200); // First 200 chars of error response
+        } catch (e) {
+          errorDetails = 'Unable to read error response';
+        }
+        console.error(`SerpAPI HTTP error for "${query.query}":`, {
+          status: response.status,
+          statusText: response.statusText,
+          errorDetails
+        });
         return { results: [], cost: 0 };
       }
       
       const data = await response.json();
       
       if (data.error || !data.organic_results || data.organic_results.length === 0) {
+        console.warn(`SerpAPI data validation failed for "${query.query}":`, {
+          hasError: !!data.error,
+          errorMessage: data.error,
+          hasResults: !!data.organic_results,
+          resultsCount: data.organic_results?.length || 0,
+          searchInfo: data.search_information || null
+        });
         return { results: [], cost: 0 };
       }
       
