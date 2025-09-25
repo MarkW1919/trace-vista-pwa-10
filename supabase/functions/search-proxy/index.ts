@@ -18,6 +18,29 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// Import confidence utilities
+const SOFT_ENTITY_CONFIDENCE = 0.15;
+const MIN_ENTITY_CONFIDENCE = 0.05;
+const MAX_ENTITY_CONFIDENCE = 0.99;
+
+function combineConfidence(original?: number | null, recalculated = 0.2) {
+  const orig = typeof original === 'number' ? original : MIN_ENTITY_CONFIDENCE;
+  const combined = Math.max(orig, (orig * 0.7) + (recalculated * 0.3));
+  return Math.min(MAX_ENTITY_CONFIDENCE, Math.max(MIN_ENTITY_CONFIDENCE, combined));
+}
+
+function calculateIntelligentConfidence(value = '', type = 'unknown', searchParams?: any) {
+  let base = 0.2;
+  if (type === 'email') base = 0.6;
+  if (type === 'phone') base = 0.4;
+  if (type === 'person') base = 0.25;
+  if (searchParams && searchParams.query && value && value.length > 1) {
+    const q = String(searchParams.query).toLowerCase();
+    if (q.includes(String(value).toLowerCase())) base += 0.2;
+  }
+  return Math.min(MAX_ENTITY_CONFIDENCE, base);
+}
+
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -205,7 +228,6 @@ function extractEntitiesFromSnippet(snippet: string) {
 
 /** Adaptive filtering */
 function filterResults(allResults: any[], searchQuery: string) {
-  const SOFT_ENTITY_CONFIDENCE = 0.15;
   const MIN_ENTITIES_ACCEPT = 2;
 
   return allResults.filter(result => {
@@ -216,28 +238,6 @@ function filterResults(allResults: any[], searchQuery: string) {
     if (typeof result.confidence === 'number' && result.confidence >= 0.3) return true;
     return false;
   });
-}
-
-/** Combine original & recalculated confidences conservatively */
-function combineConfidence(original: number | undefined, recalculated: number) {
-  const MIN = 0.05, MAX = 0.99;
-  const orig = typeof original === 'number' ? original : MIN;
-  const combined = Math.max(orig, (orig * 0.7) + (recalculated * 0.3));
-  return Math.min(MAX, Math.max(MIN, combined));
-}
-
-/** intelligent confidence calculator placeholder */
-function calculateIntelligentConfidence(value: string, type: string, searchParams: any) {
-  // Replace with your model/heuristics. For now: short heuristic
-  let base = 0.2;
-  if (type === 'email') base = 0.6;
-  if (type === 'phone') base = 0.4;
-  if (type === 'person') base = 0.25;
-  // boost if query includes value tokens
-  if (searchParams && searchParams.query && value && textSimilarity(String(searchParams.query), String(value)) > 0.2) {
-    base += 0.2;
-  }
-  return Math.min(0.95, base);
 }
 
 /** Entrypoint */
