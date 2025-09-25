@@ -63,7 +63,6 @@ interface EnhancedBasicSearchTabProps {
 }
 
 const STORAGE_KEY = 'tracevista_pending_search_state_v1';
-const SEARCH_FUNCTION_PATH = '/functions/v1/search-proxy';
 
 const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({ 
   searchMode = 'enhanced', 
@@ -240,31 +239,36 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
       // Start fetching
       setSearchProgress(prev => ({ ...prev, phase: 'fetching', progress: computePercent(1) }));
 
-      const params = new URLSearchParams();
-      params.set('q', searchQuery);
-      params.set('page', '1');
+      // Build query parameters for the edge function
+      const searchQuery = queryParts.join(' ');
+      const functionParams: Record<string, any> = {
+        q: searchQuery,
+        page: '1',
+        user_id: user?.id || null
+      };
+      
       // Add individual search parameters for more targeted search
-      if (formData.name) params.set('name', formData.name);
-      if (formData.email) params.set('email', formData.email);
-      if (formData.phone) params.set('phone', formData.phone);
-      if (formData.city) params.set('city', formData.city);
-      if (formData.state) params.set('state', formData.state);
-      if (formData.address) params.set('address', formData.address);
-      if (formData.dob) params.set('dob', formData.dob);
-      // Optionally include user id if available: get from supabase auth
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user?.id) params.set('user_id', user.id);
+      if (formData.name) functionParams.name = formData.name;
+      if (formData.email) functionParams.email = formData.email;
+      if (formData.phone) functionParams.phone = formData.phone;
+      if (formData.city) functionParams.city = formData.city;
+      if (formData.state) functionParams.state = formData.state;
+      if (formData.address) functionParams.address = formData.address;
+      if (formData.dob) functionParams.dob = formData.dob;
 
-      // call supabase function — note: path depends on your deployment; adjust if necessary
-      const endpoint = `${SEARCH_FUNCTION_PATH}?${params.toString()}`;
-      const resp = await fetch(endpoint, { method: 'GET', signal: controller.signal });
+      // Call supabase function using the supabase client
+      const { data: json, error: functionError } = await supabase.functions.invoke('search-proxy', {
+        method: 'GET',
+        body: functionParams
+      });
 
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Search function failed: ${resp.status} ${text}`);
+      if (functionError) {
+        throw new Error(`Search function failed: ${functionError.message}`);
       }
 
-      const json = await resp.json();
+      if (!json) {
+        throw new Error('No response from search function');
+      }
 
       // Phase: extracting/persisting
       setSearchProgress(prev => ({ ...prev, phase: 'extracting', progress: computePercent(2) }));
