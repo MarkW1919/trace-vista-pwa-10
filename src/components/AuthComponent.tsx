@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,60 +11,20 @@ import {
   CheckCircle, Mail, Lock, UserPlus 
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AuthComponentProps {
   className?: string;
 }
 
 export const AuthComponent = ({ className = '' }: AuthComponentProps) => {
-  const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   
+  const { user, loading, signIn, signUp, signOut } = useAuth();
   const { toast } = useToast();
-
-  useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        console.log('Auth state change:', event, session?.user?.email);
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-        
-        if (event === 'SIGNED_IN') {
-          toast({
-            title: "Welcome!",
-            description: "Successfully signed in. Enhanced features are now available.",
-            variant: "default",
-          });
-        } else if (event === 'SIGNED_OUT') {
-          toast({
-            title: "Signed Out",
-            description: "You have been signed out. Some features may be limited.",
-            variant: "default",
-          });
-        }
-      }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error('Session check error:', error);
-      }
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [toast]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,11 +32,7 @@ export const AuthComponent = ({ className = '' }: AuthComponentProps) => {
 
     setAuthLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
+      const { error } = await signIn(email, password);
       if (error) throw error;
       
       // Clear form
@@ -102,14 +57,7 @@ export const AuthComponent = ({ className = '' }: AuthComponentProps) => {
 
     setAuthLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`
-        }
-      });
-
+      const { error } = await signUp(email, password);
       if (error) throw error;
 
       toast({
@@ -137,7 +85,7 @@ export const AuthComponent = ({ className = '' }: AuthComponentProps) => {
   const handleSignOut = async () => {
     setAuthLoading(true);
     try {
-      const { error } = await supabase.auth.signOut();
+      const { error } = await signOut();
       if (error) throw error;
     } catch (error) {
       console.error('Sign out error:', error);

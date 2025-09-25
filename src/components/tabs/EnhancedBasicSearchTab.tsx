@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,6 +26,7 @@ import { ConsentWarning } from '@/components/ConsentWarning';
 import { LowResultsWarning } from '@/components/LowResultsWarning';
 import { RealOSINTGuide } from '@/components/RealOSINTGuide';
 import { AuthComponent } from '@/components/AuthComponent';
+import { useAuth } from '@/contexts/AuthContext';
 import { ApiKeyTester } from '@/components/ApiKeyTester';
 import { SearchHistory } from '@/components/SearchHistory';
 
@@ -77,51 +78,10 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
   const [hasScraperAPI, setHasScraperAPI] = useState(false);
   const [useAutomatedSearch, setUseAutomatedSearch] = useState(false);
   const [searchCost, setSearchCost] = useState(0);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
   
   const { dispatch } = useSkipTracing();
   const { toast } = useToast();
-
-  // Check authentication status on component mount
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
-        const authStatus = await SupabaseSearchService.isAuthenticated();
-        setIsAuthenticated(authStatus);
-        setUseAutomatedSearch(authStatus); // Auto-enable for authenticated users
-        setAuthChecked(true);
-        
-        console.log('Authentication status:', authStatus);
-        
-        // Show user feedback about authentication status
-        if (authStatus) {
-          toast({
-            title: "Authentication Verified",
-            description: "Real API search enabled. You'll get live results from SerpAPI and Hunter.io.",
-            variant: "default",
-          });
-        } else {
-          toast({
-            title: "Not Authenticated",
-            description: "Sign in above to access real API results. Currently showing educational examples.",
-            variant: "default",
-          });
-        }
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        setAuthChecked(true);
-        toast({
-          title: "Authentication Check Failed",
-          description: "Unable to verify login status. Please refresh and try again.",
-          variant: "destructive",
-        });
-      }
-    };
-    
-    checkAuth();
-  }, []);
+  const { isAuthenticated, loading: authLoading } = useAuth();
 
   const handleInputChange = (field: keyof SearchFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -471,7 +431,12 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
           <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
             <div className="space-y-1">
               <div className="flex items-center space-x-2">
-                {isAuthenticated ? (
+                {authLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                    <span className="text-sm text-muted-foreground">Checking authentication...</span>
+                  </>
+                ) : isAuthenticated ? (
                   <>
                     <Zap className="h-4 w-4 text-green-500" />
                     <span className="font-medium">Real API Search Active</span>
@@ -494,7 +459,7 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
                 )}
               </p>
             </div>
-            {!authChecked && (
+            {authLoading && (
               <Badge variant="outline" className="text-xs">Checking...</Badge>
             )}
           </div>
