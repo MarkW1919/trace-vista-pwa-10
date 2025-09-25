@@ -169,6 +169,7 @@ interface SearchResult {
   relevanceScore: number;
   timestamp: Date;
   extractedEntities?: any[];
+  intelligentScore?: number;
 }
 
 // Enhanced ScraperAPI credit checking function with retry logic
@@ -289,243 +290,24 @@ serve(async (req) => {
     let scraperApiResults: SearchResult[] = [];
     let scraperApiCost = 0;
 
-    // Generate search queries based on mode
-    const queries = generateSearchQueries(searchRequest.searchParams, searchRequest.searchMode);
-    console.log(`Generated ${queries.length} queries for ${searchRequest.searchMode} mode`);
+// Generate OPTIMIZED search queries - reduced for performance
+    const queries = generateOptimizedSearchQueries(searchRequest.searchParams, searchRequest.searchMode);
+    console.log(`Generated ${queries.length} optimized queries for ${searchRequest.searchMode} mode`);
 
-    // Perform SerpAPI searches with location fallback
-    let retryWithoutLocation = false;
+    // PARALLEL PROCESSING: Start ScraperAPI and SerpAPI concurrently
+    const scraperAPIPromise = useScraperAPI && searchRequest.searchParams.name ? 
+      performScraperAPISearchConcurrent(scraperApiKey, searchRequest.searchParams, session.id, user.id, supabase) : 
+      Promise.resolve({ results: [], cost: 0 });
+
+    // Process SerpAPI searches in PARALLEL BATCHES with timeout
+    const serpAPIPromise = performSerpAPISearchesConcurrent(queries, searchRequest, serpApiKey, session.id, user.id, supabase);
+
+    // Wait for both to complete
+    const [serpAPIData, scraperAPIData] = await Promise.all([serpAPIPromise, scraperAPIPromise]);
     
-    for (const query of queries) {
-      try {
-        console.log(`Executing query: ${query.query} (${query.category})`);
-        
-        // More robust parameter handling with location fallback
-        const searchParams = {
-          engine: 'google',
-          q: query.query,
-          api_key: serpApiKey,
-          num: '20',
-          safe: 'off',
-          no_cache: 'true'
-        };
-        
-        // Add location if available and not already failed
-        if (searchRequest.location && !retryWithoutLocation) {
-          searchParams.location = searchRequest.location;
-        }
-        
-        const params = new URLSearchParams(searchParams);
-        
-        console.log(`SerpAPI request for "${query.category}":`, {
-          query: query.query,
-          location: searchParams.location || 'no location',
-          url: `https://serpapi.com/search?${params.toString().slice(0, 200)}...`
-        });
-
-        const response = await fetch(`https://serpapi.com/search?${params}`);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          
-          // Check if error is location-related
-          if (errorText.includes('Unsupported') && errorText.includes('location') && searchRequest.location && !retryWithoutLocation) {
-            console.log(`Location "${searchRequest.location}" not supported, retrying without location...`);
-            retryWithoutLocation = true;
-            
-            // Retry this query without location
-            const paramsNoLocation = new URLSearchParams({
-              engine: 'google',
-              q: query.query,
-              api_key: serpApiKey,
-              num: '20',
-              safe: 'off',
-              no_cache: 'true'
-            });
-            
-            const retryResponse = await fetch(`https://serpapi.com/search?${paramsNoLocation}`);
-            
-            if (retryResponse.ok) {
-              const retryData = await retryResponse.json();
-              if (retryData.organic_results && retryData.organic_results.length > 0) {
-                // Process successful retry results with entity extraction
-                const results: SearchResult[] = retryData.organic_results.map((result: any, index: number) => {
-                  const confidence = calculateResultConfidence(result, query.query, searchRequest.searchParams);
-                  const relevanceScore = calculateRelevanceScore(result, query.query);
-                  
-                  // Extract entities from result content
-                  const extractedEntities = extractEntitiesFromSearchResult(`${result.title || ''} ${result.snippet || ''}`, searchRequest.searchParams);
-                  
-                  return {
-                    id: `serpapi-${Date.now()}-${index}`,
-                    title: result.title || 'No title',
-                    snippet: result.snippet || 'No snippet available',
-                    url: result.link || '#',
-                    source: `${result.displayed_link || 'Unknown'} (${query.category})`,
-                    confidence,
-                    relevanceScore,
-                    timestamp: new Date(),
-                    extractedEntities
-                  };
-                });
-
-                allResults.push(...results);
-                
-                const searchCost = 0.005;
-                totalCost += searchCost;
-
-                await supabase.from('api_cost_tracking').insert({
-                  user_id: user.id,
-                  service_name: 'SerpAPI',
-                  operation_type: query.category,
-                  cost: searchCost,
-                  queries_used: 1,
-                  session_id: session.id
-                });
-                
-                continue; // Success, continue to next query
-              }
-            }
-          }
-          
-          console.error(`SerpAPI error for query "${query.query}":`, {
-            status: response.status,
-            statusText: response.statusText,
-            error: errorText,
-            url: `https://serpapi.com/search?${params}`
-          });
-          continue;
-        }
-
-        const data = await response.json();
-        
-        if (data.error) {
-          console.error(`SerpAPI API error for "${query.query}":`, data.error);
-          continue;
-        }
-        console.log(`SerpAPI response for "${query.category}":`, {
-          organic_results: data.organic_results?.length || 0,
-          total_results: data.search_information?.total_results || 0,
-          search_metadata: data.search_metadata?.status,
-          credits_used: data.search_metadata?.total_time_taken
-        });
-        
-        if (!data.organic_results || data.organic_results.length === 0) {
-          console.warn(`No organic results for query "${query.query}" - SerpAPI might be blocked or quota exceeded`);
-          continue;
-        }
-
-        // Process results with enhanced entity extraction
-        const results: SearchResult[] = (data.organic_results || []).map((result: any, index: number) => {
-          const confidence = calculateResultConfidence(result, query.query, searchRequest.searchParams);
-          const relevanceScore = calculateRelevanceScore(result, query.query);
-          
-          // Extract entities from result content
-          const extractedEntities = extractEntitiesFromSearchResult(`${result.title || ''} ${result.snippet || ''}`, searchRequest.searchParams);
-          
-          return {
-            id: `serpapi-${Date.now()}-${index}`,
-            title: result.title || 'No title',
-            snippet: result.snippet || 'No snippet available',
-            url: result.link || '#',
-            source: `${result.displayed_link || 'Unknown'} (${query.category})`,
-            confidence,
-            relevanceScore,
-            timestamp: new Date(),
-            extractedEntities
-          };
-        });
-
-        allResults.push(...results);
-        
-        // SerpAPI costs approximately $5 per 1000 searches
-        const searchCost = 0.005;
-        totalCost += searchCost;
-
-        // Track cost in database
-        await supabase.from('api_cost_tracking').insert({
-          user_id: user.id,
-          service_name: 'SerpAPI',
-          operation_type: query.category,
-          cost: searchCost,
-          queries_used: 1,
-          session_id: session.id
-        });
-
-        // Rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-      } catch (error) {
-        console.error(`Error processing query "${query.query}":`, error);
-      }
-    }
-
-    // Perform ScraperAPI enhanced data collection
-    if (useScraperAPI && searchRequest.searchParams.name) {
-      console.log('Performing ScraperAPI enhanced data collection...');
-      
-      try {
-        // Check ScraperAPI credits first
-        const creditsCheck = await checkScraperAPICredits(scraperApiKey);
-        
-        if (creditsCheck.hasCredits) {
-          const remainingCredits = creditsCheck.credits;
-          
-          if (remainingCredits <= 0) {
-            console.warn('ScraperAPI: No credits remaining, skipping enhanced data collection');
-            // Continue with regular search results
-          } else {
-            console.log(`ScraperAPI credits remaining: ${remainingCredits}`);
-            
-            // Generate targeted URLs for people search sites
-            const searchUrls = generatePeopleSearchUrls(searchRequest.searchParams);
-            
-            for (const { platform, url } of searchUrls.slice(0, 3)) { // Limit to 3 sites to control cost
-              try {
-                const scrapeResult = await performScraperAPISearch(url, platform, scraperApiKey);
-                
-                if (scrapeResult.success && scrapeResult.html) {
-                  // Extract entities from scraped content
-                  const extractedData = extractEntitiesFromScrapedContent(scrapeResult.html, platform, searchRequest.searchParams);
-                  
-                  if (extractedData.length > 0) {
-                    scraperApiResults.push(...extractedData);
-                    scraperApiCost += scrapeResult.cost || 0;
-
-                    // Store ScraperAPI cost tracking
-                    await supabase.from('api_cost_tracking').insert({
-                      user_id: user.id,
-                      service_name: 'ScraperAPI',
-                      operation_type: platform,
-                      cost: scrapeResult.cost || 0,
-                      queries_used: 1,
-                      session_id: session.id
-                    });
-                  }
-                } else if (scrapeResult.error && scrapeResult.error.includes('insufficient credits')) {
-                  console.warn(`ScraperAPI: Insufficient credits for ${platform}, stopping further requests`);
-                  break;
-                }
-                
-                // Rate limiting between scrapes
-                await new Promise(resolve => setTimeout(resolve, 500));
-              } catch (error) {
-                console.error(`ScraperAPI error for ${platform}:`, error);
-                // Continue with other platforms even if one fails
-              }
-            }
-
-            console.log(`ScraperAPI enhanced collection completed. Results: ${scraperApiResults.length}, Cost: $${scraperApiCost.toFixed(4)}`);
-          }
-        } else {
-          console.warn('ScraperAPI: Failed to check credits, proceeding with limited requests');
-        }
-      } catch (error) {
-        console.error('ScraperAPI integration error:', error);
-        // Continue with regular search results even if ScraperAPI fails
-      }
-    }
-
+    allResults.push(...serpAPIData.results);
+    scraperApiResults = scraperAPIData.results;
+    totalCost += serpAPIData.cost + scraperAPIData.cost;
     // Perform email OSINT if requested and email is provided
     if (searchRequest.useEmailOsint && searchRequest.searchParams.email && hunterApiKey) {
       try {
@@ -762,14 +544,22 @@ serve(async (req) => {
     let finalResults = uniqueResults;
     if (searchRequest.searchMode === 'enhanced' && uniqueResults.length > 0) {
       console.log('🧠 Applying intelligent filtering for Enhanced Pro mode');
-      finalResults = filterIntelligentResults(uniqueResults, searchRequest.searchParams);
+      // Simple filtering - prioritize results with more entities and higher confidence
+      finalResults = uniqueResults.filter(result => 
+        result.confidence >= 50 || 
+        (result.extractedEntities && result.extractedEntities.length > 0)
+      );
+      
+      if (finalResults.length === 0) {
+        finalResults = uniqueResults; // Fallback to all results if filtering is too strict
+      }
       console.log(`🧠 Enhanced filtering complete: ${finalResults.length} high-quality results retained from ${uniqueResults.length} total`);
     }
     
     const sortedResults = finalResults.sort((a, b) => {
-      // Prioritize results with higher confidence + relevance + entity count + intelligent score
-      const aScore = a.confidence + a.relevanceScore + (a.extractedEntities?.length || 0) * 5 + (a.intelligentScore || 0);
-      const bScore = b.confidence + b.relevanceScore + (b.extractedEntities?.length || 0) * 5 + (b.intelligentScore || 0);
+      // Prioritize results with higher confidence + relevance + entity count
+      const aScore = a.confidence + a.relevanceScore + (a.extractedEntities?.length || 0) * 5;
+      const bScore = b.confidence + b.relevanceScore + (b.extractedEntities?.length || 0) * 5;
       return bScore - aScore;
     });
 
@@ -786,26 +576,21 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Search proxy error:', error);
     
-    // Try to update session with error status
-    try {
-      if (session?.id) {
-        await supabase
-          .from('search_sessions')
-          .update({
-            status: 'failed',
-            error_message: error instanceof Error ? error.message : 'Unknown error',
-            completed_at: new Date().toISOString()
-          })
-          .eq('id', session.id);
-        
-        console.log(`Session ${session.id} marked as failed due to error`);
-      }
-    } catch (updateError) {
-      console.error('Failed to update session with error status:', updateError);
-    }
+    return new Response(JSON.stringify({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      results: [],
+      entities: [],
+      cost: 0,
+      totalResults: 0,
+      timestamp: new Date().toISOString()
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
     
     return new Response(JSON.stringify({
       success: false,
@@ -829,16 +614,16 @@ const GEOGRAPHIC_PROXIMITY = {
   }
 };
 
-const AREA_CODE_REGIONS = {
+const AREA_CODE_REGIONS: Record<string, { state: string; region: string; counties: string[] }> = {
   '580': { state: 'OK', region: 'Southern Oklahoma', counties: ['Bryan', 'Atoka', 'Marshall', 'Carter'] },
   '405': { state: 'OK', region: 'Central Oklahoma', counties: ['Canadian', 'Cleveland', 'Oklahoma'] },
   '918': { state: 'OK', region: 'Eastern Oklahoma', counties: ['Tulsa', 'Creek', 'Rogers'] },
 };
 
-// Helper functions
-function generateSearchQueries(
+// OPTIMIZED search query generation - reduced for performance
+function generateOptimizedSearchQueries(
   params: SearchRequest['searchParams'], 
-  mode: 'basic' | 'deep' | 'targeted'
+  mode: 'basic' | 'deep' | 'targeted' | 'enhanced'
 ): Array<{ query: string; category: string }> {
   const queries: Array<{ query: string; category: string }> = [];
   const { name, city, state, phone, email, address } = params;
@@ -917,8 +702,8 @@ function generateSearchQueries(
     queries.push({ query: `${name} relatives associates`, category: 'Associates' });
   }
 
-  // Limit queries based on mode but allow more for skip tracing
-  const limits = { basic: 12, deep: 20, targeted: 18 };
+  // OPTIMIZED: Reduced limits for better performance and timeout prevention
+  const limits = { basic: 6, deep: 8, targeted: 10, enhanced: 8 };
   return queries.slice(0, limits[mode]);
 }
 
@@ -938,7 +723,260 @@ function generateNearbyCityQueries(name: string, city: string, state: string): A
     });
   }
   
-  return queries.slice(0, 3); // Limit neighboring city searches
+  return queries.slice(0, 2); // Further reduced for performance
+}
+
+// CONCURRENT processing functions for better performance
+async function performSerpAPISearchesConcurrent(
+  queries: Array<{ query: string; category: string }>,
+  searchRequest: SearchRequest,
+  serpApiKey: string,
+  sessionId: string,
+  userId: string,
+  supabase: any
+): Promise<{ results: SearchResult[]; cost: number }> {
+  const results: SearchResult[] = [];
+  let totalCost = 0;
+  
+  // Process queries in parallel batches of 3 to avoid overwhelming the API
+  const batchSize = 3;
+  const batches = [];
+  
+  for (let i = 0; i < queries.length; i += batchSize) {
+    batches.push(queries.slice(i, i + batchSize));
+  }
+  
+  for (const batch of batches) {
+    console.log(`Processing SerpAPI batch of ${batch.length} queries...`);
+    
+    const batchPromises = batch.map(query => 
+      performSingleSerpAPISearch(query, searchRequest, serpApiKey, sessionId, userId, supabase)
+    );
+    
+    try {
+    const batchResults = await Promise.allSettled(
+      batchPromises.map(p => 
+        Promise.race([
+          p,
+          new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
+            setTimeout(() => reject(new Error('Query timeout')), 10000)
+          )
+        ])
+      )
+    );
+    
+    batchResults.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value) {
+        results.push(...result.value.results);
+        totalCost += result.value.cost;
+      } else {
+        console.error(`Query "${batch[index].query}" failed:`, result.status === 'rejected' ? result.reason : 'Unknown error');
+      }
+    });
+      
+      // Small delay between batches
+      if (batches.indexOf(batch) < batches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+    } catch (error) {
+      console.error('Batch processing error:', error);
+    }
+  }
+  
+  console.log(`SerpAPI concurrent processing completed: ${results.length} results, $${totalCost.toFixed(4)} cost`);
+  return { results, cost: totalCost };
+}
+
+async function performSingleSerpAPISearch(
+  query: { query: string; category: string },
+  searchRequest: SearchRequest,
+  serpApiKey: string,
+  sessionId: string,
+  userId: string,
+  supabase: any
+): Promise<{ results: SearchResult[]; cost: number }> {
+  try {
+    const searchParams: Record<string, string> = {
+      engine: 'google',
+      q: query.query,
+      api_key: serpApiKey,
+      num: '10', // Reduced from 20 for better performance
+      safe: 'off',
+      no_cache: 'true'
+    };
+    
+    if (searchRequest.location) {
+      searchParams.location = searchRequest.location;
+    }
+    
+    const params = new URLSearchParams(searchParams);
+    
+    // 8-second timeout per individual request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    
+    try {
+      const response = await fetch(`https://serpapi.com/search?${params}`, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error(`SerpAPI error for "${query.query}": ${response.status}`);
+        return { results: [], cost: 0 };
+      }
+      
+      const data = await response.json();
+      
+      if (data.error || !data.organic_results || data.organic_results.length === 0) {
+        return { results: [], cost: 0 };
+      }
+      
+      const results: SearchResult[] = data.organic_results.map((result: any, index: number) => {
+        const confidence = calculateResultConfidence(result, query.query, searchRequest.searchParams);
+        const relevanceScore = calculateRelevanceScore(result, query.query);
+        const extractedEntities = extractEntitiesFromSearchResult(`${result.title || ''} ${result.snippet || ''}`, searchRequest.searchParams);
+        
+        return {
+          id: `serpapi-${sessionId}-${Date.now()}-${index}`,
+          title: result.title || 'No title',
+          snippet: result.snippet || 'No snippet available',
+          url: result.link || '#',
+          source: `${result.displayed_link || 'Unknown'} (${query.category})`,
+          confidence,
+          relevanceScore,
+          timestamp: new Date(),
+          extractedEntities
+        };
+      });
+      
+      const searchCost = 0.005;
+      
+      // Track cost in database
+      await supabase.from('api_cost_tracking').insert({
+        user_id: userId,
+        service_name: 'SerpAPI',
+        operation_type: query.category,
+        cost: searchCost,
+        queries_used: 1,
+        session_id: sessionId
+      });
+      
+      return { results, cost: searchCost };
+      
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        console.error(`SerpAPI timeout for query "${query.query}"`);
+      } else {
+        console.error(`SerpAPI fetch error for "${query.query}":`, fetchError);
+      }
+      return { results: [], cost: 0 };
+    }
+    
+  } catch (error) {
+    console.error(`Error in performSingleSerpAPISearch for "${query.query}":`, error);
+    return { results: [], cost: 0 };
+  }
+}
+
+async function performScraperAPISearchConcurrent(
+  scraperApiKey: string,
+  searchParams: SearchRequest['searchParams'],
+  sessionId: string,
+  userId: string,
+  supabase: any
+): Promise<{ results: SearchResult[]; cost: number }> {
+  try {
+    console.log('Starting concurrent ScraperAPI search...');
+    
+    // Check credits first
+    const creditsCheck = await checkScraperAPICredits(scraperApiKey);
+    
+    if (!creditsCheck.hasCredits || creditsCheck.credits <= 0) {
+      console.warn('ScraperAPI: No credits remaining');
+      return { results: [], cost: 0 };
+    }
+    
+    console.log(`ScraperAPI credits remaining: ${creditsCheck.credits}`);
+    
+    // Generate targeted URLs - limit to 2 sites for performance
+    const searchUrls = generatePeopleSearchUrls(searchParams);
+    const limitedUrls = searchUrls.slice(0, 2);
+    
+    const results: SearchResult[] = [];
+    let totalCost = 0;
+    
+    // Process sites in parallel with timeout
+    const sitePromises = limitedUrls.map(async ({ platform, url }) => {
+      try {
+        const scrapeResult: any = await Promise.race([
+          performScraperAPISearch(url, platform, scraperApiKey),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('ScraperAPI timeout')), 15000)
+          )
+        ]);
+        
+        if (scrapeResult.success && scrapeResult.html) {
+          const extractedData = extractEntitiesFromScrapedContent(scrapeResult.html, platform, searchParams);
+          
+          if (extractedData && extractedData.length > 0) {
+            const scraperResult: SearchResult = {
+              id: `scraper-${sessionId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              title: `${searchParams.name} - ${platform} Data`,
+              snippet: `Found ${extractedData.length} entities from ${platform}`,
+              url: url,
+              source: `${platform} (Enhanced)`,
+              confidence: 85,
+              relevanceScore: 90,
+              timestamp: new Date(),
+              extractedEntities: extractedData
+            };
+            
+            return { result: scraperResult, cost: 0.01 }; // ScraperAPI costs ~$1 per 100 requests
+          }
+        }
+        
+        return { result: null, cost: 0.01 };
+        
+      } catch (error) {
+        console.error(`ScraperAPI error for ${platform}:`, error);
+        return { result: null, cost: 0.01 };
+      }
+    });
+    
+    const siteResults = await Promise.allSettled(sitePromises);
+    
+    siteResults.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value.result) {
+        results.push(result.value.result);
+        totalCost += result.value.cost;
+      } else if (result.status === 'fulfilled') {
+        totalCost += result.value.cost;
+      }
+    });
+    
+    // Track cost
+    if (totalCost > 0) {
+      await supabase.from('api_cost_tracking').insert({
+        user_id: userId,
+        service_name: 'ScraperAPI',
+        operation_type: 'Enhanced Data Collection',
+        cost: totalCost,
+        queries_used: limitedUrls.length,
+        session_id: sessionId
+      });
+    }
+    
+    console.log(`ScraperAPI concurrent processing completed: ${results.length} results, $${totalCost.toFixed(4)} cost`);
+    return { results, cost: totalCost };
+    
+  } catch (error) {
+    console.error('ScraperAPI concurrent processing error:', error);
+    return { results: [], cost: 0 };
+  }
 }
 
 function calculateResultConfidence(result: any, query: string, searchParams?: any): number {

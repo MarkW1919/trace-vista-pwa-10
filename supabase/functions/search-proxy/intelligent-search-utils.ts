@@ -27,7 +27,7 @@ const TRAINING_SUBJECT: TrainingData = {
 };
 
 // Geographic proximity scoring for Oklahoma locations
-const OKLAHOMA_LOCATIONS = {
+const OKLAHOMA_LOCATIONS: Record<string, { county: string; proximity: string[] }> = {
   'Kettle': { county: 'Carter', proximity: ['Calera', 'Ardmore', 'Durant'] },
   'Calera': { county: 'Bryan', proximity: ['Kettle', 'Durant', 'Atoka'] },
   'Ardmore': { county: 'Carter', proximity: ['Kettle', 'Marietta', 'Davis'] },
