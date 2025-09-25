@@ -228,20 +228,25 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
         } catch (apiError: any) {
           console.error('Real API search error:', apiError);
           
-          // PHASE 2 FIX: Enhanced error categorization and handling
-          let errorCategory = 'general';
-          let shouldRetry = false;
-          
-          if (apiError.message?.includes('timeout') || apiError.message?.includes('Timeout')) {
-            errorCategory = 'timeout';
-            shouldRetry = retryAttempt < 2;
-          } else if (apiError.message?.includes('Authentication') || apiError.message?.includes('401')) {
-            errorCategory = 'auth';
-            shouldRetry = false;
-          } else if (apiError.message?.includes('credits') || apiError.message?.includes('quota')) {
-            errorCategory = 'credits';
-            shouldRetry = false;
-          }
+            // PHASE 2 FIX: Enhanced error categorization and handling with session refresh
+            let errorCategory = 'general';
+            let shouldRetry = false;
+            
+            if (apiError.message?.includes('timeout') || apiError.message?.includes('Timeout')) {
+              errorCategory = 'timeout';
+              shouldRetry = retryAttempt < 2;
+            } else if (apiError.message?.includes('Authentication') || apiError.message?.includes('401') || apiError.message?.includes('Session expired')) {
+              errorCategory = 'auth';
+              shouldRetry = false;
+              // Attempt graceful session refresh
+              if (refreshSession) {
+                console.log('Attempting to refresh authentication session...');
+                refreshSession();
+              }
+            } else if (apiError.message?.includes('credits') || apiError.message?.includes('quota')) {
+              errorCategory = 'credits';
+              shouldRetry = false;
+            }
 
           if (shouldRetry) {
             console.log(`Error category: ${errorCategory}, retrying (attempt ${retryAttempt + 1}/2)...`);

@@ -217,12 +217,12 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // PHASE 1 FIX: Extended function timeout (35 seconds for comprehensive searches)
+  // PHASE 1 FIX: Extended function timeout (45 seconds for comprehensive searches)
   const functionTimeout = new AbortController();
   const timeoutId = setTimeout(() => {
-    console.warn('Function timeout reached (35s) - returning partial results');
+    console.warn('Function timeout reached (45s) - returning partial results');
     functionTimeout.abort();
-  }, 35000);
+  }, 45000);
 
   try {
     const supabase = createClient(
@@ -344,13 +344,13 @@ serve(async (req) => {
       Promise.race([
         serpAPIPromise,
         new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
-          setTimeout(() => reject(new Error('SerpAPI timeout after 25 seconds')), 25000)
+          setTimeout(() => reject(new Error('SerpAPI timeout after 30 seconds')), 30000)
         )
       ]),
       Promise.race([
         scraperAPIPromise,
         new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
-          setTimeout(() => reject(new Error('ScraperAPI timeout after 25 seconds')), 25000)
+          setTimeout(() => reject(new Error('ScraperAPI timeout after 30 seconds')), 30000)
         )
       ])
     ]);
@@ -654,11 +654,11 @@ serve(async (req) => {
     if (searchRequest.searchMode === 'enhanced' && uniqueResults.length > 0) {
       console.log('🧠 Applying optimized intelligent filtering for Enhanced Pro mode');
       
-      // FIXED: Less restrictive filtering - confidence threshold lowered from 50 to 35
+      // FIXED: Further reduced restrictions - confidence threshold lowered from 35 to 25
       finalResults = uniqueResults.filter(result => 
-        result.confidence >= 35 || 
+        result.confidence >= 25 || 
         (result.extractedEntities && result.extractedEntities.length > 0) ||
-        result.relevanceScore >= 40 || // Add relevance score as alternative qualification
+        result.relevanceScore >= 30 || // Add relevance score as alternative qualification
         result.source.includes('Enhanced') // Always include ScraperAPI results
       );
       
@@ -666,8 +666,8 @@ serve(async (req) => {
       if (finalResults.length < 3 && uniqueResults.length >= 3) {
         console.log('🔄 Filter too restrictive, applying relaxed criteria...');
         finalResults = uniqueResults.filter(result => 
-          result.confidence >= 25 || 
-          result.relevanceScore >= 30 ||
+          result.confidence >= 15 || 
+          result.relevanceScore >= 20 ||
           (result.extractedEntities && result.extractedEntities.length > 0)
         );
       }
@@ -871,7 +871,7 @@ async function performSerpAPISearchesConcurrent(
       Promise.race([
         performSingleSerpAPISearch(query, searchRequest, serpApiKey, sessionId, userId, supabase),
         new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
-          setTimeout(() => reject(new Error(`SerpAPI query timeout after 8 seconds: ${query.query}`)), 8000)
+          setTimeout(() => reject(new Error(`SerpAPI query timeout after 12 seconds: ${query.query}`)), 12000)
         )
       ])
     );
