@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -67,7 +67,15 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
   
   const [results, setResults] = useState<SearchResult[]>([]);
   const [entities, setEntities] = useState<BaseEntity[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  // PHASE 2 FIX: Improved state management with clear separation of concerns
+  const [searchState, setSearchState] = useState({
+    isSearching: false,
+    searchMode: propSearchMode,
+    useRealAPI: false,
+    hasScraperAPI: false,
+    searchCost: 0,
+    retryCount: 0
+  });
   const [searchProgress, setSearchProgress] = useState<SearchProgress>({
     phase: '',
     progress: 0,
@@ -75,20 +83,26 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
     totalQueries: 0,
     completedQueries: 0
   });
-  const [searchMode, setSearchMode] = useState<'deep' | 'enhanced'>(propSearchMode);
-  const [hasScraperAPI, setHasScraperAPI] = useState(false);
-  const [useAutomatedSearch, setUseAutomatedSearch] = useState(false);
-  const [searchCost, setSearchCost] = useState(0);
   
   const { dispatch } = useSkipTracing();
   const { toast } = useToast();
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { isAuthenticated, loading: authLoading, sessionValid, refreshSession } = useAuth();
+  
+  // Auto-detect real API availability based on authentication
+  React.useEffect(() => {
+    if (isAuthenticated && sessionValid) {
+      setSearchState(prev => ({ ...prev, useRealAPI: true }));
+    } else if (!authLoading) {
+      setSearchState(prev => ({ ...prev, useRealAPI: false }));
+    }
+  }, [isAuthenticated, sessionValid, authLoading]);
 
   const handleInputChange = (field: keyof SearchFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const performEnhancedSearch = async () => {
+  // PHASE 2 FIX: Enhanced search function with intelligent retry and better error handling
+  const performEnhancedSearch = async (retryAttempt = 0) => {
     if (!formData.name.trim()) {
       toast({
         title: "Missing Information",
@@ -98,7 +112,13 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
       return;
     }
 
-    setIsSearching(true);
+    // Update search state
+    setSearchState(prev => ({ 
+      ...prev, 
+      isSearching: true, 
+      searchMode: searchState.searchMode,
+      retryCount: retryAttempt 
+    }));
     setResults([]);
     setEntities([]);
     dispatch({ type: 'SET_LOADING', payload: { module: 'basicSearch', loading: true } });
@@ -114,49 +134,39 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
         address: formData.address || undefined,
       };
 
-      // Generate comprehensive query list based on search mode
-      let allQueries = generateGoogleDorks(searchParams);
-      
-      if (searchMode === 'deep') {
-        allQueries.push(...generateSpecializedDorks(searchParams, 'deep'));
-        allQueries.push(...generateSpecializedDorks(searchParams, 'social'));
-        allQueries.push(...generateSpecializedDorks(searchParams, 'business'));
-      } else if (searchMode === 'enhanced') {
-        allQueries.push(...generateReverseQueries(searchParams));
-        allQueries.push(...generateSpecializedDorks(searchParams, 'legal'));
-        allQueries.push(...generateSpecializedDorks(searchParams, 'deep'));
-        allQueries.push(...generateSpecializedDorks(searchParams, 'social'));
-        allQueries.push(...generateSpecializedDorks(searchParams, 'business'));
-      }
-
-      // Limit queries based on mode  
-      const queryLimit = searchMode === 'deep' ? 12 : 20;
-      const selectedQueries = allQueries.slice(0, queryLimit);
-
-      setSearchProgress({
-        phase: 'Initializing Google Dorks',
-        progress: 0,
-        currentQuery: '',
-        totalQueries: selectedQueries.length,
-        completedQueries: 0
-      });
-
+      // PHASE 2 FIX: Clear separation of educational vs real search logic
       const allResults: SearchResult[] = [];
       let totalSearchCost = 0;
       
-      // For authenticated users, always use automated search via Edge Function
-      if (isAuthenticated && useAutomatedSearch) {
-        console.log('Using authenticated Edge Function search for real API results');
+      // Real API Search for authenticated users with valid sessions
+      if (searchState.useRealAPI && isAuthenticated && sessionValid) {
+        console.log('Initiating real API search via Edge Function');
         
-        setSearchProgress(prev => ({
-          ...prev,
-          phase: 'Real API Search',
-          progress: 10,
-          currentQuery: 'Connecting to advanced search APIs (this may take 20-30 seconds)...',
+        setSearchProgress({
+          phase: 'Connecting to Live APIs',
+          progress: 5,
+          currentQuery: 'Authenticating with SerpAPI and ScraperAPI (may take 25-35 seconds)...',
+          totalQueries: 1,
           completedQueries: 0
-        }));
+        });
 
         try {
+          // PHASE 2 FIX: Automatic session refresh if needed
+          if (!sessionValid) {
+            console.log('Session invalid, attempting refresh before API call...');
+            const refreshed = await refreshSession();
+            if (!refreshed) {
+              throw new Error('Session refresh failed - please sign in again');
+            }
+          }
+
+          setSearchProgress(prev => ({
+            ...prev,
+            phase: 'Processing Real API Search',
+            progress: 15,
+            currentQuery: 'Executing comprehensive search with live APIs...'
+          }));
+
           const { SupabaseSearchService } = await import('@/services/supabaseSearchService');
           
           const apiResponse = await SupabaseSearchService.performComprehensiveSearch(
@@ -169,22 +179,22 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
               dob: formData.dob,
               address: formData.address,
             },
-            searchMode,
+            searchState.searchMode,
             !!formData.email
           );
 
-          if (apiResponse.success) {
+          if (apiResponse.success && apiResponse.results.length > 0) {
             allResults.push(...apiResponse.results);
             totalSearchCost = apiResponse.cost;
-            setSearchCost(totalSearchCost);
+            
+            setSearchState(prev => ({ ...prev, searchCost: totalSearchCost }));
 
             setSearchProgress(prev => ({
               ...prev,
               phase: 'Processing Live Results',
-              progress: 80,
-              currentQuery: `Processed ${apiResponse.results.length} real results from APIs`,
-              completedQueries: 1,
-              totalQueries: 1
+              progress: 85,
+              currentQuery: `Successfully processed ${apiResponse.results.length} real results from live APIs`,
+              completedQueries: 1
             }));
 
             toast({
@@ -193,77 +203,94 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
               variant: "default",
             });
             
-            console.log('Live API search successful:', {
-              resultCount: apiResponse.results.length,
-              cost: totalSearchCost,
-              sessionId: apiResponse.sessionId
-            });
           } else {
-            throw new Error(apiResponse.error || 'Edge Function search failed');
+            // PHASE 2 FIX: Intelligent retry logic for API failures
+            if (retryAttempt < 2 && apiResponse.error?.includes('timeout')) {
+              console.log(`API timeout detected, retrying (attempt ${retryAttempt + 1}/2)...`);
+              
+              setSearchProgress(prev => ({
+                ...prev,
+                phase: 'Retrying Search',
+                progress: 25,
+                currentQuery: `Timeout detected, retrying search (attempt ${retryAttempt + 1}/2)...`
+              }));
+
+              // Retry after 2 seconds
+              setTimeout(() => {
+                performEnhancedSearch(retryAttempt + 1);
+              }, 2000);
+              return;
+            }
+            
+            throw new Error(apiResponse.error || 'No real results found from live APIs');
           }
-        } catch (error) {
-          console.error('Live API search error:', error);
           
-          // Handle timeout errors gracefully
-          if (error.message?.includes('timeout') || error.message?.includes('Timeout') || error.message?.includes('504')) {
+        } catch (apiError: any) {
+          console.error('Real API search error:', apiError);
+          
+          // PHASE 2 FIX: Enhanced error categorization and handling
+          let errorCategory = 'general';
+          let shouldRetry = false;
+          
+          if (apiError.message?.includes('timeout') || apiError.message?.includes('Timeout')) {
+            errorCategory = 'timeout';
+            shouldRetry = retryAttempt < 2;
+          } else if (apiError.message?.includes('Authentication') || apiError.message?.includes('401')) {
+            errorCategory = 'auth';
+            shouldRetry = false;
+          } else if (apiError.message?.includes('credits') || apiError.message?.includes('quota')) {
+            errorCategory = 'credits';
+            shouldRetry = false;
+          }
+
+          if (shouldRetry) {
+            console.log(`Error category: ${errorCategory}, retrying (attempt ${retryAttempt + 1}/2)...`);
+            
             setSearchProgress(prev => ({
               ...prev,
-              phase: 'Search Timeout - Using Demo Mode',
-              progress: 50,
-              currentQuery: 'API timeout detected - switching to educational examples...'
+              phase: 'Retrying After Error',
+              progress: 30,
+              currentQuery: `${errorCategory} error detected, retrying (attempt ${retryAttempt + 1}/2)...`
             }));
-            
-            toast({
-              title: "Search Timeout", 
-              description: "The search APIs are taking longer than expected. Showing educational examples instead.",
-              variant: "default",
-            });
-            
-            // Fall back to educational content for timeout scenarios
-            console.log('Falling back to educational content due to timeout');
-            const mockConfig: MockDataConfig = {
-              minResults: 5,
-              maxAugmentation: 3,
-              includeRelatives: true,
-              includeBusinesses: true,
-              includeProperties: true,
-            };
-            const mockResults = generateMockResults({
-              name: formData.name,
-              city: formData.city,
-              state: formData.state,
-              phone: formData.phone,
-              email: formData.email,
-              dob: formData.dob,
-              address: formData.address,
-            }, mockConfig);
-            allResults.push(...mockResults);
-            
-          } else {
-            toast({
-              title: "API Search Failed", 
-              description: `Real API search failed: ${error.message}. Check API keys and connection.`,
-              variant: "destructive",
-            });
-            
-            // For non-timeout errors, don't fallback to educational content
-            throw error;
+
+            setTimeout(() => {
+              performEnhancedSearch(retryAttempt + 1);
+            }, 3000);
+            return;
           }
+
+          // Final error handling - no more retries
+          const errorMessages = {
+            timeout: "Search timeout - APIs are taking longer than expected. Please try again in a few moments.",
+            auth: "Authentication error - please sign out and sign in again to refresh your session.",
+            credits: "API credits exhausted - please check your API usage and billing.",
+            general: `Real API search failed: ${apiError.message}. Please check your connection and try again.`
+          };
+
+          toast({
+            title: "API Search Failed", 
+            description: errorMessages[errorCategory as keyof typeof errorMessages],
+            variant: "destructive",
+          });
+          
+          throw apiError;
         }
-      }
-      
-      // Only use educational content for non-authenticated users or when Edge Function fails
-      if (!isAuthenticated && allResults.length === 0) {
-        console.log('User not authenticated, showing educational content');
         
-        setSearchProgress(prev => ({
-          ...prev,
-          phase: 'Educational Content',
-          progress: 60,
-          currentQuery: 'Generating educational search examples (sign in for real results)',
-          completedQueries: 0,
-          totalQueries: selectedQueries.length
-        }));
+      } else if (!isAuthenticated) {
+        // Educational mode for non-authenticated users
+        console.log('User not authenticated - showing educational content');
+        
+        setSearchProgress({
+          phase: 'Educational Content Generation',
+          progress: 20,
+          currentQuery: 'Generating educational search examples (sign in for real API results)',
+          totalQueries: 8,
+          completedQueries: 0
+        });
+
+        // Generate educational content with proper Google Dorks
+        const allQueries = generateGoogleDorks(searchParams);
+        const selectedQueries = allQueries.slice(0, 8);
 
         for (let i = 0; i < selectedQueries.length; i++) {
           const dork = selectedQueries[i];
@@ -271,7 +298,7 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
           setSearchProgress(prev => ({
             ...prev,
             phase: `Educational ${dork.category} Examples`,
-            progress: 60 + ((i + 1) / selectedQueries.length) * 20,
+            progress: 20 + ((i + 1) / selectedQueries.length) * 60,
             currentQuery: `${dork.description} (Educational - Sign in for real results)`,
             completedQueries: i + 1
           }));
@@ -288,24 +315,26 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
             });
             allResults.push(...searchResults);
           } catch (error) {
-            console.warn(`Manual search URL generation failed for query: ${dork.query}`);
+            console.warn(`Educational content generation failed for query: ${dork.query}`);
           }
         }
-      } else if (isAuthenticated && allResults.length === 0) {
-        // If authenticated user got no results, show specific message
+
+      } else {
+        // Authenticated but session issues
         toast({
-          title: "No Real Results Found", 
-          description: "The Edge Function search didn't return any results. This may be due to API limitations, insufficient API credits, or the subject having minimal public presence.",
+          title: "Session Issue",
+          description: "Authentication session needs refresh. Please sign out and sign in again.",
           variant: "destructive",
         });
+        return;
       }
 
-      // Process and enhance results
+      // PHASE 2 FIX: Enhanced result processing with better progress tracking
       setSearchProgress(prev => ({
         ...prev,
         phase: 'Processing Results',
-        progress: 85,
-        currentQuery: 'Deduplicating and scoring results'
+        progress: 90,
+        currentQuery: 'Analyzing and scoring results...'
       }));
 
       // Extract entities from all results
@@ -323,17 +352,6 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
         }
       });
 
-      // Flag low results for authenticated users only
-      dispatch({ type: 'SET_LOW_RESULTS', payload: allResults.length < 3 && isAuthenticated });
-
-      // Final processing
-      setSearchProgress(prev => ({
-        ...prev,
-        phase: 'Finalizing',
-        progress: 95,
-        currentQuery: 'Compiling comprehensive report'
-      }));
-
       // Sort results by relevance and confidence
       const sortedResults = allResults.sort((a, b) => 
         (b.relevanceScore + b.confidence) - (a.relevanceScore + a.confidence)
@@ -346,31 +364,42 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
       dispatch({ type: 'ADD_RESULTS', payload: sortedResults });
       dispatch({ type: 'ADD_ENTITIES', payload: extractedEntities });
       dispatch({ type: 'ADD_TO_HISTORY', payload: `Enhanced Search: ${formData.name}` });
+      dispatch({ type: 'SET_LOW_RESULTS', payload: sortedResults.length < 3 && isAuthenticated });
 
-      setSearchProgress(prev => ({
-        ...prev,
+      setSearchProgress({
         phase: 'Complete',
         progress: 100,
-        currentQuery: `Found ${sortedResults.length} results with ${extractedEntities.length} entities`
-      }));
+        currentQuery: `Found ${sortedResults.length} results with ${extractedEntities.length} entities`,
+        totalQueries: 1,
+        completedQueries: 1
+      });
 
-      if (!isAuthenticated) {
+      // Success messages based on search type
+      if (searchState.useRealAPI) {
+        toast({
+          title: "Live Search Complete",
+          description: `Found ${sortedResults.length} real results${totalSearchCost > 0 ? `. Cost: $${totalSearchCost.toFixed(4)}` : ''}`,
+          variant: "default",
+        });
+      } else {
         toast({
           title: "Educational Search Complete",
-          description: `Showing ${sortedResults.length} educational examples. Sign in for real API results.`,
+          description: `Generated ${sortedResults.length} educational examples. Sign in for real API results.`,
           variant: "default",
         });
       }
 
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Search error:', error);
+      
       toast({
         title: "Search Error",
-        description: "An error occurred during the search. Please try again.",
+        description: error?.message || "An error occurred during the search. Please try again.",
         variant: "destructive",
       });
-      console.error('Search error:', error);
+      
     } finally {
-      setIsSearching(false);
+      setSearchState(prev => ({ ...prev, isSearching: false }));
       dispatch({ type: 'SET_LOADING', payload: { module: 'basicSearch', loading: false } });
       
       // Clear progress after a delay
@@ -386,6 +415,7 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
     }
   };
 
+  // PHASE 2 FIX: Enhanced reset function with proper state cleanup
   const handleReset = () => {
     setFormData({
       name: '',
@@ -405,7 +435,12 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
       totalQueries: 0,
       completedQueries: 0
     });
-    setSearchCost(0);
+    setSearchState(prev => ({ 
+      ...prev, 
+      searchCost: 0, 
+      retryCount: 0,
+      isSearching: false 
+    }));
   };
 
   return (
@@ -417,7 +452,9 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
       <ApiKeyTester />
       
         {/* ScraperAPI Management */}
-        <ScraperAPIManager onApiKeyUpdate={setHasScraperAPI} />
+        <ScraperAPIManager onApiKeyUpdate={(hasAPI) => 
+          setSearchState(prev => ({ ...prev, hasScraperAPI: hasAPI }))
+        } />
 
         {/* Search History */}
         <SearchHistory />
@@ -426,13 +463,13 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
         <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Search className="h-5 w-5 text-primary" />
-              <span>{searchMode === 'deep' ? 'Deep Search' : 'Enhanced Pro Search'} with Google Dorks</span>
+              <span>{searchState.searchMode === 'deep' ? 'Deep Search' : 'Enhanced Pro Search'} with Google Dorks</span>
               <Badge variant="default" className="ml-2">
-                {searchMode === 'enhanced' ? 'Maximum Accuracy' : 'Industry-Grade'}
+                {searchState.searchMode === 'enhanced' ? 'Maximum Accuracy' : 'Industry-Grade'}
               </Badge>
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              {searchMode === 'enhanced' 
+              {searchState.searchMode === 'enhanced' 
                 ? 'Most comprehensive OSINT search with intelligent filtering and enhanced accuracy based on training data'
                 : 'Fast comprehensive OSINT search using strategic Google Dorks - Real APIs, no mock data'
               }
@@ -440,7 +477,9 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Search Mode Selection */}
-          <Tabs value={searchMode} onValueChange={(value) => setSearchMode(value as 'deep' | 'enhanced')}>
+          <Tabs value={searchState.searchMode} onValueChange={(value) => 
+            setSearchState(prev => ({ ...prev, searchMode: value as 'deep' | 'enhanced' }))
+          }>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="deep" className="flex items-center space-x-2">
                 <Database className="h-4 w-4" />
@@ -449,7 +488,7 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
               <TabsTrigger value="enhanced" className="flex items-center space-x-2">
                 <Shield className="h-4 w-4" />
                 <span>Enhanced Pro</span>
-                {hasScraperAPI && <Badge variant="secondary" className="text-xs px-1">Pro</Badge>}
+                {searchState.hasScraperAPI && <Badge variant="secondary" className="text-xs px-1">Pro</Badge>}
               </TabsTrigger>
             </TabsList>
             
@@ -457,7 +496,7 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
               Fast comprehensive search with 12 strategic queries including business records, social media, and public data
             </TabsContent>
             <TabsContent value="enhanced" className="text-sm text-muted-foreground">
-              {hasScraperAPI ? (
+              {searchState.hasScraperAPI ? (
                 <span className="text-success">Most comprehensive search with 20+ queries, ScraperAPI integration, CAPTCHA bypass, and residential proxies for maximum accuracy</span>
               ) : (
                 <span className="text-warning">Most comprehensive search mode - configure ScraperAPI for enhanced data collection capabilities</span>
@@ -489,9 +528,10 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
                 )}
               </div>
               <p className="text-sm text-muted-foreground">
-                {isAuthenticated ? (
+                {searchState.useRealAPI ? (
                   <>Real SerpAPI & Hunter.io results via Edge Function
-                  {searchCost > 0 && ` • Last search cost: $${searchCost.toFixed(4)}`}</>
+                  {searchState.searchCost > 0 && ` • Last search cost: $${searchState.searchCost.toFixed(4)}`}
+                  {searchState.retryCount > 0 && ` • Retry attempts: ${searchState.retryCount}`}</>
                 ) : (
                   'Sign in above to access real API searches with live data'
                 )}
@@ -596,14 +636,14 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
           {/* Search Controls */}
           <div className="flex flex-col sm:flex-row gap-3">
             <Button
-              onClick={performEnhancedSearch}
-              disabled={isSearching || !formData.name.trim()}
+              onClick={() => performEnhancedSearch()}
+              disabled={searchState.isSearching || !formData.name.trim()}
               className="flex-1 bg-primary hover:bg-primary/90"
             >
-              {isSearching ? (
+              {searchState.isSearching ? (
                 <>
                   <Zap className="h-4 w-4 mr-2 animate-pulse" />
-                  Searching...
+                  {searchState.retryCount > 0 ? `Retrying... (${searchState.retryCount}/2)` : 'Searching...'}
                 </>
               ) : (
                 <>
@@ -612,13 +652,13 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
                 </>
               )}
             </Button>
-            <Button variant="outline" onClick={handleReset} disabled={isSearching}>
+            <Button variant="outline" onClick={handleReset} disabled={searchState.isSearching}>
               Reset Form
             </Button>
           </div>
 
-          {/* Progress Indicator */}
-          {isSearching && (
+          {/* PHASE 2 FIX: Enhanced progress indicator with real-time API status */}
+          {searchState.isSearching && (
             <Card className="border-primary/20 bg-primary/5">
               <CardContent className="pt-6">
                 <div className="space-y-3">
@@ -626,6 +666,11 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
                     <div className="flex items-center space-x-2">
                       <Shield className="h-4 w-4 text-primary" />
                       <span className="font-medium">{searchProgress.phase}</span>
+                      {searchState.retryCount > 0 && (
+                        <Badge variant="secondary" className="text-xs">
+                          Retry {searchState.retryCount}/2
+                        </Badge>
+                      )}
                     </div>
                     <Badge variant="secondary">
                       {searchProgress.completedQueries}/{searchProgress.totalQueries}
@@ -638,6 +683,13 @@ export const EnhancedBasicSearchTab = ({ searchMode: propSearchMode = 'deep', on
                     <Clock className="h-3 w-3" />
                     <span>{searchProgress.currentQuery}</span>
                   </div>
+                  
+                  {searchState.useRealAPI && (
+                    <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                      <Zap className="h-3 w-3" />
+                      <span>Live API Search Active • Estimated time: 25-35 seconds</span>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

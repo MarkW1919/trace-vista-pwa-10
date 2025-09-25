@@ -217,12 +217,12 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Add overall function timeout (25 seconds)
+  // PHASE 1 FIX: Extended function timeout (35 seconds for comprehensive searches)
   const functionTimeout = new AbortController();
   const timeoutId = setTimeout(() => {
-    console.warn('Function timeout reached (25s)');
+    console.warn('Function timeout reached (35s) - returning partial results');
     functionTimeout.abort();
-  }, 25000);
+  }, 35000);
 
   try {
     const supabase = createClient(
@@ -276,18 +276,32 @@ serve(async (req) => {
     const hunterApiKey = Deno.env.get('HUNTER_API_KEY');
     const scraperApiKey = searchRequest.scraperApiKey || Deno.env.get('SCRAPERAPI_API_KEY');
 
+    // PHASE 1 FIX: Enhanced API key validation with detailed error reporting
     if (!serpApiKey) {
-      console.error('SerpAPI key validation failed: key not configured in Supabase secrets');
-      throw new Error('SerpAPI key not configured in Supabase secrets');
+      const errorMsg = 'SerpAPI key not configured in Supabase secrets. Please add SERPAPI_API_KEY to your Supabase project secrets.';
+      console.error('API Key Validation Error:', errorMsg);
+      throw new Error(errorMsg);
     }
     
-    // Basic API key length validation (let SerpAPI validate its own format)
-    if (serpApiKey.length < 10) {
-      console.error('SerpAPI key validation failed:', {
+    // Comprehensive API key format validation
+    if (serpApiKey.length < 32) {
+      const errorMsg = `SerpAPI key format invalid: expected 32+ characters, got ${serpApiKey.length}. Please verify your SERPAPI_API_KEY in Supabase secrets.`;
+      console.error('SerpAPI Key Format Error:', {
         keyLength: serpApiKey.length,
-        minRequired: 10
+        expectedMinLength: 32,
+        keyPrefix: serpApiKey.substring(0, 8) + '...'
       });
-      throw new Error('SerpAPI key is too short (minimum 10 characters required)');
+      throw new Error(errorMsg);
+    }
+    
+    // Validate ScraperAPI key format if provided
+    if (scraperApiKey && scraperApiKey.length < 20) {
+      const errorMsg = `ScraperAPI key format invalid: expected 20+ characters, got ${scraperApiKey.length}. Please verify your SCRAPERAPI_API_KEY.`;
+      console.error('ScraperAPI Key Format Error:', {
+        keyLength: scraperApiKey.length,
+        expectedMinLength: 20
+      });
+      throw new Error(errorMsg);
     }
     
     console.log('API Keys status:', {
@@ -325,31 +339,79 @@ serve(async (req) => {
     // Process SerpAPI searches in PARALLEL BATCHES with timeout
     const serpAPIPromise = performSerpAPISearchesConcurrent(queries, searchRequest, serpApiKey, session.id, user.id, supabase);
 
-    // Circuit breaker: Wait up to 20 seconds for both APIs, then return partial results
+    // PHASE 1 FIX: Enhanced timeout handling with progressive timeouts and retry logic
     const [serpAPIData, scraperAPIData] = await Promise.allSettled([
       Promise.race([
         serpAPIPromise,
         new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
-          setTimeout(() => reject(new Error('SerpAPI timeout')), 20000)
+          setTimeout(() => reject(new Error('SerpAPI timeout after 25 seconds')), 25000)
         )
       ]),
       Promise.race([
         scraperAPIPromise,
         new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
-          setTimeout(() => reject(new Error('ScraperAPI timeout')), 20000)
+          setTimeout(() => reject(new Error('ScraperAPI timeout after 25 seconds')), 25000)
         )
       ])
     ]);
 
-    // Handle partial results gracefully
+    // PHASE 1 FIX: Enhanced error handling with detailed diagnostics and fallback strategies
     const serpResults = serpAPIData.status === 'fulfilled' ? serpAPIData.value : { results: [], cost: 0 };
     const scraperResults = scraperAPIData.status === 'fulfilled' ? scraperAPIData.value : { results: [], cost: 0 };
     
+    // Detailed error reporting for failed API calls
     if (serpAPIData.status === 'rejected') {
-      console.warn('SerpAPI failed:', serpAPIData.reason?.message);
+      const error = serpAPIData.reason;
+      console.error('SerpAPI Critical Failure:', {
+        errorMessage: error?.message || 'Unknown error',
+        errorType: error?.constructor?.name || 'Unknown',
+        timestamp: new Date().toISOString(),
+        searchMode: searchRequest.searchMode,
+        queryCount: queries.length
+      });
+      
+      // Store error for debugging
+      try {
+        await supabase.from('search_errors').insert({
+          user_id: user.id,
+          session_id: session.id,
+          service: 'SerpAPI',
+          error_message: error?.message || 'Unknown SerpAPI error',
+          error_details: JSON.stringify({
+            searchMode: searchRequest.searchMode,
+            queryCount: queries.length,
+            timestamp: new Date().toISOString()
+          })
+        });
+      } catch (logError) {
+        console.warn('Failed to log SerpAPI error:', logError);
+      }
     }
+    
     if (scraperAPIData.status === 'rejected') { 
-      console.warn('ScraperAPI failed:', scraperAPIData.reason?.message);
+      const error = scraperAPIData.reason;
+      console.error('ScraperAPI Critical Failure:', {
+        errorMessage: error?.message || 'Unknown error',
+        errorType: error?.constructor?.name || 'Unknown',
+        timestamp: new Date().toISOString(),
+        hasApiKey: !!scraperApiKey
+      });
+      
+      // Store error for debugging
+      try {
+        await supabase.from('search_errors').insert({
+          user_id: user.id,
+          session_id: session.id,
+          service: 'ScraperAPI',
+          error_message: error?.message || 'Unknown ScraperAPI error',
+          error_details: JSON.stringify({
+            hasApiKey: !!scraperApiKey,
+            timestamp: new Date().toISOString()
+          })
+        });
+      } catch (logError) {
+        console.warn('Failed to log ScraperAPI error:', logError);
+      }
     }
     
     allResults.push(...serpResults.results);
@@ -587,20 +649,35 @@ serve(async (req) => {
     const combinedResults = [...allResults, ...scraperApiResults];
     const uniqueResults = deduplicateResults(combinedResults);
     
-    // Apply intelligent filtering for enhanced mode
+    // PHASE 1 FIX: Optimized intelligent filtering with reduced restrictions
     let finalResults = uniqueResults;
     if (searchRequest.searchMode === 'enhanced' && uniqueResults.length > 0) {
-      console.log('🧠 Applying intelligent filtering for Enhanced Pro mode');
-      // Simple filtering - prioritize results with more entities and higher confidence
+      console.log('🧠 Applying optimized intelligent filtering for Enhanced Pro mode');
+      
+      // FIXED: Less restrictive filtering - confidence threshold lowered from 50 to 35
       finalResults = uniqueResults.filter(result => 
-        result.confidence >= 50 || 
-        (result.extractedEntities && result.extractedEntities.length > 0)
+        result.confidence >= 35 || 
+        (result.extractedEntities && result.extractedEntities.length > 0) ||
+        result.relevanceScore >= 40 || // Add relevance score as alternative qualification
+        result.source.includes('Enhanced') // Always include ScraperAPI results
       );
       
-      if (finalResults.length === 0) {
-        finalResults = uniqueResults; // Fallback to all results if filtering is too strict
+      // More intelligent fallback strategy
+      if (finalResults.length < 3 && uniqueResults.length >= 3) {
+        console.log('🔄 Filter too restrictive, applying relaxed criteria...');
+        finalResults = uniqueResults.filter(result => 
+          result.confidence >= 25 || 
+          result.relevanceScore >= 30 ||
+          (result.extractedEntities && result.extractedEntities.length > 0)
+        );
       }
-      console.log(`🧠 Enhanced filtering complete: ${finalResults.length} high-quality results retained from ${uniqueResults.length} total`);
+      
+      if (finalResults.length === 0) {
+        console.log('⚠️ All filters failed, returning all unique results');
+        finalResults = uniqueResults; // Ultimate fallback to all results
+      }
+      
+      console.log(`🧠 Enhanced filtering complete: ${finalResults.length} results retained from ${uniqueResults.length} total (${((finalResults.length/uniqueResults.length)*100).toFixed(1)}% retention rate)`);
     }
     
     const sortedResults = finalResults.sort((a, b) => {
@@ -789,15 +866,15 @@ async function performSerpAPISearchesConcurrent(
   const limitedQueries = queries.slice(0, 6);
   console.log(`Processing ${limitedQueries.length} prioritized SerpAPI queries...`);
   
-  // Process all queries in parallel with individual timeouts
-  const queryPromises = limitedQueries.map(query => 
-    Promise.race([
-      performSingleSerpAPISearch(query, searchRequest, serpApiKey, sessionId, userId, supabase),
-      new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
-        setTimeout(() => reject(new Error(`Query timeout: ${query.query}`)), 6000)
-      )
-    ])
-  );
+    // PHASE 1 FIX: Enhanced timeout management with individual query timeouts extended
+    const queryPromises = limitedQueries.map(query => 
+      Promise.race([
+        performSingleSerpAPISearch(query, searchRequest, serpApiKey, sessionId, userId, supabase),
+        new Promise<{ results: SearchResult[]; cost: number }>((_, reject) => 
+          setTimeout(() => reject(new Error(`SerpAPI query timeout after 8 seconds: ${query.query}`)), 8000)
+        )
+      ])
+    );
   
   try {
     const queryResults = await Promise.allSettled(queryPromises);
@@ -843,9 +920,9 @@ async function performSingleSerpAPISearch(
     
     const params = new URLSearchParams(searchParams);
     
-    // 5-second timeout per individual request
+    // PHASE 1 FIX: Extended individual request timeout from 5s to 8s
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
     
     try {
       const response = await fetch(`https://serpapi.com/search?${params}`, {
@@ -961,10 +1038,11 @@ async function performScraperAPISearchConcurrent(
     // Process sites in parallel with timeout
     const sitePromises = limitedUrls.map(async ({ platform, url }) => {
       try {
+        // PHASE 1 FIX: Extended ScraperAPI timeout from 10s to 12s for better success rate
         const scrapeResult: any = await Promise.race([
           performScraperAPISearch(url, platform, scraperApiKey),
           new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('ScraperAPI timeout')), 10000)
+            setTimeout(() => reject(new Error(`ScraperAPI timeout after 12 seconds for ${platform}`)), 12000)
           )
         ]);
         
@@ -1029,7 +1107,8 @@ async function performScraperAPISearchConcurrent(
 }
 
 function calculateResultConfidence(result: any, query: string, searchParams?: any): number {
-  let confidence = 30; // Lower base confidence for more selective results
+  // PHASE 1 FIX: Improved base confidence from 30 to 40 for better result retention
+  let confidence = 40;
 
   const title = (result.title || '').toLowerCase();
   const snippet = (result.snippet || '').toLowerCase();
