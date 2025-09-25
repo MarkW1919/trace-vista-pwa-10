@@ -45,7 +45,11 @@ export class SupabaseSearchService {
     useEmailOsint: boolean = false
   ): Promise<SearchResponse> {
     try {
-      console.log('Starting comprehensive search via Supabase Edge Function...');
+      console.log('Starting comprehensive search via Supabase Edge Function...', {
+        searchParams,
+        searchMode,
+        useEmailOsint
+      });
       
       const { data, error } = await supabase.functions.invoke('search-proxy', {
         body: {
@@ -59,49 +63,142 @@ export class SupabaseSearchService {
         }
       });
 
+      console.log('Edge function response:', { data, error });
+
       if (error) {
-        console.error('Supabase function error:', error);
-        throw new Error(`Search function failed: ${error.message}`);
+        console.error('Supabase function invocation error:', error);
+        // Try to retrieve results from database as fallback
+        return await this.fallbackToSessionResults(searchParams, error.message);
       }
 
-      if (!data.success) {
-        throw new Error(data.error || 'Search failed');
+      // Handle different response structures
+      let responseData = data;
+      if (typeof data === 'string') {
+        try {
+          responseData = JSON.parse(data);
+        } catch (parseError) {
+          console.error('Failed to parse response:', parseError);
+          throw new Error('Invalid response format from search service');
+        }
       }
 
-      console.log(`Search completed successfully. Results: ${data.results.length}, Cost: $${data.cost.toFixed(4)}`);
+      if (!responseData || typeof responseData !== 'object') {
+        console.error('Invalid response structure:', responseData);
+        throw new Error('Invalid response from search service');
+      }
+
+      if (!responseData.success) {
+        console.error('Search function reported failure:', responseData.error);
+        // Try fallback to database
+        return await this.fallbackToSessionResults(searchParams, responseData.error || 'Search failed');
+      }
+
+      const results = responseData.results || [];
+      const sessionId = responseData.sessionId;
+      const cost = responseData.cost || 0;
+      const totalResults = responseData.totalResults || results.length;
+
+      console.log(`Search completed successfully. SessionId: ${sessionId}, Results: ${results.length}, Cost: $${cost.toFixed(4)}`);
 
       // Convert results to proper SearchResult format
-      const convertedResults: SearchResult[] = data.results.map((result: any, index: number) => ({
+      const convertedResults: SearchResult[] = results.map((result: any, index: number) => ({
         id: result.id || `result-${Date.now()}-${index}`,
         type: 'name' as const,
         value: searchParams.name,
-        title: result.title,
-        snippet: result.snippet,
-        url: result.url,
-        source: result.source,
+        title: result.title || 'Untitled Result',
+        snippet: result.snippet || '',
+        url: result.url || '',
+        source: result.source || 'Unknown',
         confidence: result.confidence || 0,
-        relevanceScore: result.relevanceScore || 0,
-        timestamp: new Date(result.timestamp),
+        relevanceScore: result.relevanceScore || result.relevance_score || 0,
+        timestamp: result.timestamp ? new Date(result.timestamp) : new Date(),
         query: `Automated search: ${searchParams.name}`,
-        extractedEntities: result.extractedEntities || []
+        extractedEntities: result.extractedEntities || result.extracted_entities || []
       }));
 
       return {
         success: true,
-        sessionId: data.sessionId,
+        sessionId: sessionId,
         results: convertedResults,
-        cost: data.cost,
-        totalResults: data.totalResults,
+        cost: cost,
+        totalResults: totalResults,
       };
 
     } catch (error) {
       console.error('SupabaseSearchService error:', error);
+      // Final fallback attempt
+      const fallbackResult = await this.fallbackToSessionResults(searchParams, error instanceof Error ? error.message : 'Unknown error');
+      if (fallbackResult.success && fallbackResult.results.length > 0) {
+        return fallbackResult;
+      }
+
       return {
         success: false,
         results: [],
         cost: 0,
         totalResults: 0,
         error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Fallback method to retrieve results from database when edge function fails
+   */
+  private static async fallbackToSessionResults(
+    searchParams: SearchRequest['searchParams'], 
+    originalError: string
+  ): Promise<SearchResponse> {
+    try {
+      console.log('Attempting fallback to retrieve results from database...');
+      
+      // Get the most recent session for this user that might have results
+      const { data: sessions, error: sessionError } = await supabase
+        .from('search_sessions')
+        .select('id, search_params, total_results, total_cost')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (sessionError) {
+        console.error('Failed to fetch recent sessions:', sessionError);
+        throw new Error(`Fallback failed: ${originalError}`);
+      }
+
+      // Look for a session with similar search parameters
+      const matchingSession = sessions?.find(session => {
+        const params = session.search_params as any;
+        return params?.name?.toLowerCase() === searchParams.name.toLowerCase();
+      });
+
+      if (!matchingSession || matchingSession.total_results === 0) {
+        console.log('No matching session found with results');
+        throw new Error(`No cached results available: ${originalError}`);
+      }
+
+      console.log(`Found matching session ${matchingSession.id} with ${matchingSession.total_results} results`);
+      
+      const sessionResults = await this.getSessionResults(matchingSession.id);
+      
+      if (sessionResults.success && sessionResults.results.length > 0) {
+        return {
+          success: true,
+          sessionId: matchingSession.id,
+          results: sessionResults.results,
+          cost: matchingSession.total_cost || 0,
+          totalResults: sessionResults.results.length,
+        };
+      }
+
+      throw new Error(`Fallback session has no results: ${originalError}`);
+
+    } catch (fallbackError) {
+      console.error('Fallback retrieval failed:', fallbackError);
+      return {
+        success: false,
+        results: [],
+        cost: 0,
+        totalResults: 0,
+        error: `Search failed: ${originalError}. Fallback also failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown fallback error'}`
       };
     }
   }
