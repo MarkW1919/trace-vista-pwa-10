@@ -241,25 +241,24 @@ const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({
 
       // Build query parameters for the edge function
       const searchQuery = queryParts.join(' ');
-      const functionParams: Record<string, any> = {
+      const queryParams = new URLSearchParams({
         q: searchQuery,
-        page: '1',
-        user_id: user?.id || null
-      };
+        page: '1'
+      });
       
       // Add individual search parameters for more targeted search
-      if (formData.name) functionParams.name = formData.name;
-      if (formData.email) functionParams.email = formData.email;
-      if (formData.phone) functionParams.phone = formData.phone;
-      if (formData.city) functionParams.city = formData.city;
-      if (formData.state) functionParams.state = formData.state;
-      if (formData.address) functionParams.address = formData.address;
-      if (formData.dob) functionParams.dob = formData.dob;
+      if (formData.name) queryParams.set('name', formData.name);
+      if (formData.email) queryParams.set('email', formData.email);
+      if (formData.phone) queryParams.set('phone', formData.phone);
+      if (formData.city) queryParams.set('city', formData.city);
+      if (formData.state) queryParams.set('state', formData.state);
+      if (formData.address) queryParams.set('address', formData.address);
+      if (formData.dob) queryParams.set('dob', formData.dob);
+      if (user?.id) queryParams.set('user_id', user.id);
 
-      // Call supabase function using the supabase client
-      const { data: json, error: functionError } = await supabase.functions.invoke('search-proxy', {
-        method: 'GET',
-        body: functionParams
+      // Call supabase function with query parameters
+      const { data: json, error: functionError } = await supabase.functions.invoke(`search-proxy?${queryParams.toString()}`, {
+        method: 'GET'
       });
 
       if (functionError) {
