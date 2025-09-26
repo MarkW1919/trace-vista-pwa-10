@@ -1,369 +1,357 @@
-// src/components/tabs/EnhancedBasicSearchTab.tsx
-// React + TypeScript component for the Enhanced Basic Search tab.
-// Refactored to use the useSearch hook for centralized search logic.
-
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
+import { Search, Loader2, User, MapPin, Phone, Mail, AlertCircle, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
-import { useSkipTracing } from '@/contexts/SkipTracingContext';
 import { useSearch } from '@/hooks/useSearch';
-import { ConsentWarning } from '@/components/ConsentWarning';
-import { AuthComponent } from '@/components/AuthComponent';
-import { ApiKeyManager } from '@/components/ApiKeyManager';
-import { SearchHistory } from '@/components/SearchHistory';
-import SearchResults from '@/components/SearchResults';
-import { LowResultsWarning } from '@/components/LowResultsWarning';
-import { RealOSINTGuide } from '@/components/RealOSINTGuide';
+import { useAuth } from '@/contexts/AuthContext';
 
-type SearchFormData = {
-  name: string;
+interface SearchFormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
   city: string;
   state: string;
-  dob: string;
-  address: string;
-  phone: string;
-  email: string;
-};
-
-interface EnhancedBasicSearchTabProps {
-  searchMode?: 'deep' | 'enhanced';
-  onNavigateToReport?: () => void;
+  age: string;
 }
 
-const EnhancedBasicSearchTab: React.FC<EnhancedBasicSearchTabProps> = ({ 
-  searchMode = 'enhanced', 
-  onNavigateToReport 
-}) => {
-  const { toast } = useToast();
-  const { user, isAuthenticated } = useAuth();
-  const { state, dispatch } = useSkipTracing();
-  
-  // Form data state (kept in component)
+const EntityBadge: React.FC<{ entity: { type: string; value: string; confidence: number } }> = ({ entity }) => {
+  const getIcon = () => {
+    switch (entity.type) {
+      case 'email': return <Mail className="h-3 w-3" />;
+      case 'phone': return <Phone className="h-3 w-3" />;
+      case 'name': return <User className="h-3 w-3" />;
+      case 'address': return <MapPin className="h-3 w-3" />;
+      default: return null;
+    }
+  };
+
+  const getColor = () => {
+    switch (entity.type) {
+      case 'email': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
+      case 'phone': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300';
+      case 'name': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300';
+      case 'address': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
+    }
+  };
+
+  return (
+    <Badge variant="secondary" className={`text-xs flex items-center gap-1 ${getColor()}`}>
+      {getIcon()}
+      {entity.type}: {entity.value} ({Math.round(entity.confidence * 100)}%)
+    </Badge>
+  );
+};
+
+export const EnhancedBasicSearchTab: React.FC = () => {
   const [formData, setFormData] = useState<SearchFormData>({
-    name: '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
     city: '',
     state: '',
-    dob: '',
-    address: '',
-    phone: '',
-    email: ''
+    age: ''
   });
 
-  // Use the search hook for all search-related state and logic
-  const {
-    isSearching,
-    error,
-    results,
-    rawResults,
-    filteredOutCount,
-    sessionId,
-    progress,
-    performSearch
-  } = useSearch({ 
-    query: '', 
-    page: 1, 
-    user_id: user?.id || null 
-  });
+  const { user } = useAuth();
+  const { results, isSearching, error, search, lastResponse } = useSearch();
 
   const handleInputChange = (field: keyof SearchFormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const buildSearchQuery = useCallback(() => {
+    const parts: string[] = [];
+    
+    if (formData.firstName || formData.lastName) {
+      parts.push(`${formData.firstName} ${formData.lastName}`.trim());
+    }
+    if (formData.email) parts.push(formData.email);
+    if (formData.phone) parts.push(formData.phone);
+    if (formData.city || formData.state) {
+      parts.push(`${formData.city} ${formData.state}`.trim());
+    }
+    if (formData.age) parts.push(`age ${formData.age}`);
+    
+    return parts.filter(Boolean).join(' ');
+  }, [formData]);
+
   const doSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
-    // Validate at least one field is filled
-    const hasInput = formData.name.trim() || formData.email.trim() || formData.phone.trim();
-    if (!hasInput) {
-      toast({
-        title: 'Input Required',
-        description: 'Please provide at least a name, email, or phone number to search.',
-        variant: 'destructive'
-      });
+    const query = buildSearchQuery();
+    if (!query.trim()) {
       return;
     }
-    
-    // Build search query from form data
-    const queryParts = [
-      formData.name,
-      formData.email,
-      formData.phone,
-      formData.city,
-      formData.state,
-      formData.address
-    ].filter(Boolean);
-    const searchQuery = queryParts.join(' ');
-    
-    // Use the hook to perform the search
-    const result = await performSearch({ 
-      query: searchQuery, 
-      page: 1, 
-      user_id: user?.id || null 
-    });
 
-    if (result?.success) {
-      // Update global context with dispatch actions
-      dispatch({ type: 'ADD_RESULTS', payload: results });
-      dispatch({ type: 'ADD_TO_HISTORY', payload: `Enhanced Search: ${formData.name || 'Multi-field search'}` });
-
-      // Show helpful note if items were filtered
-      if (filteredOutCount && filteredOutCount > 0) {
-        toast({
-          title: 'Results filtered',
-          description: `${filteredOutCount} results were filtered out by heuristics. Try broadening your query or check advanced settings.`,
-          variant: 'default'
-        });
-      }
-    } else if (result?.error) {
-      toast({ 
-        title: 'Search failed', 
-        description: result.error, 
-        variant: 'destructive' 
-      });
-    }
+    await search(query);
   };
 
-  const handleReset = () => {
-    setFormData({
-      name: '',
-      city: '',
-      state: '',
-      dob: '',
-      address: '',
-      phone: '',
-      email: ''
-    });
-  };
+  const isFormValid = buildSearchQuery().trim().length > 0;
 
   return (
     <div className="space-y-6">
-        <ConsentWarning />
-        <AuthComponent />
-        <ApiKeyManager />
-        
-        {state.searchHistory.length > 0 && <SearchHistory />}
-      
       <Card>
         <CardHeader>
-          <CardTitle>Enhanced Basic Search</CardTitle>
-          <Tabs value={searchMode} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="deep">Deep Search</TabsTrigger>
-              <TabsTrigger value="enhanced">Enhanced Search</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Badge variant={isAuthenticated ? "default" : "secondary"}>
-              {isAuthenticated ? "Authenticated" : "Demo Mode"}
-            </Badge>
-            <Badge variant={isAuthenticated ? "default" : "outline"}>
-              {isAuthenticated ? "Real API" : "Educational"}
-            </Badge>
-          </div>
+          <CardTitle className="flex items-center gap-2">
+            <Search className="h-5 w-5" />
+            Enhanced Basic Search
+          </CardTitle>
+          <CardDescription>
+            Enter known information about the person you're investigating. The system will construct an intelligent search query across multiple databases.
+          </CardDescription>
         </CardHeader>
-        
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Full Name *</Label>
-            <Input
-              id="name"
-              value={formData.name}
-              onChange={(e) => handleInputChange('name', e.target.value)}
-              placeholder="John Smith"
-              disabled={isSearching}
-              maxLength={100}
-            />
+        <CardContent>
+          <form onSubmit={doSearch} className="space-y-6">
+            {/* Personal Information */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="firstName" className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  First Name
+                </Label>
+                <Input
+                  id="firstName"
+                  value={formData.firstName}
+                  onChange={(e) => handleInputChange('firstName', e.target.value)}
+                  placeholder="John"
+                  disabled={isSearching}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="lastName">Last Name</Label>
+                <Input
+                  id="lastName"
+                  value={formData.lastName}
+                  onChange={(e) => handleInputChange('lastName', e.target.value)}
+                  placeholder="Smith"
+                  disabled={isSearching}
+                />
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => handleInputChange('email', e.target.value)}
-                placeholder="john@example.com"
-                disabled={isSearching}
-                maxLength={255}
-              />
+
+            {/* Contact Information */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="flex items-center gap-2">
+                  <Mail className="h-4 w-4" />
+                  Email Address
+                </Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => handleInputChange('email', e.target.value)}
+                  placeholder="john.smith@example.com"
+                  disabled={isSearching}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="phone" className="flex items-center gap-2">
+                  <Phone className="h-4 w-4" />
+                  Phone Number
+                </Label>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) => handleInputChange('phone', e.target.value)}
+                  placeholder="(555) 123-4567"
+                  disabled={isSearching}
+                />
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number</Label>
-              <Input
-                id="phone"
-                value={formData.phone}
-                onChange={(e) => handleInputChange('phone', e.target.value)}
-                placeholder="(555) 123-4567"
-                disabled={isSearching}
-                maxLength={20}
-              />
+
+            {/* Location Information */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="city" className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
+                  City
+                </Label>
+                <Input
+                  id="city"
+                  value={formData.city}
+                  onChange={(e) => handleInputChange('city', e.target.value)}
+                  placeholder="Oklahoma City"
+                  disabled={isSearching}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="state">State</Label>
+                <Input
+                  id="state"
+                  value={formData.state}
+                  onChange={(e) => handleInputChange('state', e.target.value)}
+                  placeholder="OK"
+                  disabled={isSearching}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="age">Age</Label>
+                <Input
+                  id="age"
+                  type="number"
+                  value={formData.age}
+                  onChange={(e) => handleInputChange('age', e.target.value)}
+                  placeholder="35"
+                  disabled={isSearching}
+                />
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="city">City</Label>
-              <Input
-                id="city"
-                value={formData.city}
-                onChange={(e) => handleInputChange('city', e.target.value)}
-                placeholder="Los Angeles"
-                disabled={isSearching}
-                maxLength={100}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="state">State</Label>
-              <Input
-                id="state"
-                value={formData.state}
-                onChange={(e) => handleInputChange('state', e.target.value)}
-                placeholder="CA"
-                disabled={isSearching}
-                maxLength={50}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="dob">Date of Birth</Label>
-              <Input
-                id="dob"
-                type="date"
-                value={formData.dob}
-                onChange={(e) => handleInputChange('dob', e.target.value)}
-                disabled={isSearching}
-              />
-            </div>
-            
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="address">Address</Label>
-              <Input
-                id="address"
-                value={formData.address}
-                onChange={(e) => handleInputChange('address', e.target.value)}
-                placeholder="123 Main St, Los Angeles, CA 90210"
-                disabled={isSearching}
-                maxLength={200}
-              />
-            </div>
-          </div>
-          
-          <div className="flex gap-2 pt-4">
+
+            {/* Search Query Preview */}
+            {buildSearchQuery() && (
+              <div className="p-3 bg-muted rounded-lg">
+                <Label className="text-sm font-medium">Search Query:</Label>
+                <p className="text-sm text-muted-foreground mt-1">"{buildSearchQuery()}"</p>
+              </div>
+            )}
+
             <Button 
-              onClick={doSearch} 
-              disabled={isSearching}
-              className="flex-1"
-              type="submit"
+              type="submit" 
+              disabled={!isFormValid || isSearching}
+              className="w-full"
             >
-              {isSearching ? 'Searching...' : 'Run Enhanced Search'}
+              {isSearching ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Searching Multiple Databases...
+                </>
+              ) : (
+                <>
+                  <Search className="h-4 w-4 mr-2" />
+                  Begin Investigation
+                </>
+              )}
             </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleReset}
-              disabled={isSearching}
-            >
-              Reset Form
-            </Button>
-          </div>
+          </form>
         </CardContent>
       </Card>
 
-      {/* Progress Indicator */}
-      {isSearching && (
+      {/* Error Display */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Search Results Summary */}
+      {lastResponse && (
         <Card>
-          <CardContent className="pt-6">
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>{progress.phase}</span>
-                <span>{progress.progress}%</span>
+          <CardHeader>
+            <CardTitle className="text-lg">Investigation Results</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-4">
+              <div className="space-y-1">
+                <div className="text-2xl font-bold text-primary">{lastResponse.totalResults}</div>
+                <div className="text-sm text-muted-foreground">Results Found</div>
               </div>
-              <Progress value={progress.progress} />
-              {progress.currentQuery && (
-                <p className="text-xs text-muted-foreground">
-                  Current: {progress.currentQuery}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Completed: {progress.completedQueries} / {progress.totalQueries || 1}
-              </p>
+              <div className="space-y-1">
+                <div className="text-2xl font-bold text-blue-600">{lastResponse.summary.totalEntities}</div>
+                <div className="text-sm text-muted-foreground">Data Points</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-2xl font-bold text-green-600">
+                  {lastResponse.summary.serpapi + lastResponse.summary.hunter + lastResponse.summary.scraperapi}
+                </div>
+                <div className="text-sm text-muted-foreground">Sources</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-2xl font-bold text-orange-600">${lastResponse.totalCost.toFixed(4)}</div>
+                <div className="text-sm text-muted-foreground">Cost</div>
+              </div>
+            </div>
+            
+            <div className="text-xs text-muted-foreground">
+              Sources: SerpAPI ({lastResponse.summary.serpapi}), Hunter.io ({lastResponse.summary.hunter}), ScraperAPI ({lastResponse.summary.scraperapi})
             </div>
           </CardContent>
         </Card>
       )}
 
-      <div className="text-sm">
-        <div>Phase: <strong>{progress.phase}</strong> — Progress: {progress.progress}%</div>
-        {progress.startedAt && <div className="text-xs text-muted">Started: {new Date(progress.startedAt).toLocaleString()}</div>}
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded">
-          {error}
-        </div>
-      )}
-
-      {/* Results area — only show "No results" after complete and no results */}
-      {(!isSearching && progress.phase === 'complete' && (results?.length || 0) === 0) && (
-        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
-          No real results found. Try adjusting your search parameters.
-        </div>
-      )}
-
-      {/* Progressive results (if any) */}
-      {Array.isArray(results) && results.length > 0 && (
-        <div className="space-y-3">
-          {results.map((r: any, i: number) => (
-            <div key={r.result_hash || r.url || i} className="p-3 border rounded bg-white">
-              <a href={r.url} target="_blank" rel="noreferrer" className="text-lg font-semibold">{r.title || r.url}</a>
-              <div className="text-sm mt-1">{r.snippet}</div>
-              <div className="text-xs mt-2 text-muted">Source: {r.source} — Confidence: {typeof r.confidence === 'number' ? (Math.round(r.confidence * 100) + '%') : '—'}</div>
-            </div>
+      {/* Detailed Results */}
+      {results.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Detailed Findings ({results.length})</h3>
+          
+          {results.map((result, index) => (
+            <Card key={result.id} className="relative">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <CardTitle className="text-base leading-tight">
+                      <a 
+                        href={result.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        {result.title}
+                      </a>
+                    </CardTitle>
+                    {result.snippet && (
+                      <CardDescription className="mt-2 text-sm">
+                        {result.snippet}
+                      </CardDescription>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <Badge variant="outline" className="text-xs">
+                      {result.source}
+                    </Badge>
+                    <Badge 
+                      variant={result.confidence > 0.7 ? "default" : result.confidence > 0.5 ? "secondary" : "destructive"}
+                      className="text-xs"
+                    >
+                      {Math.round(result.confidence * 100)}% match
+                    </Badge>
+                  </div>
+                </div>
+              </CardHeader>
+              
+              {result.entities && result.entities.length > 0 && (
+                <CardContent className="pt-0">
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-muted-foreground">
+                      Extracted Information ({result.entities.length} items):
+                    </h4>
+                    <div className="flex flex-wrap gap-1">
+                      {result.entities.map((entity, idx) => (
+                        <EntityBadge key={idx} entity={entity} />
+                      ))}
+                    </div>
+                  </div>
+                </CardContent>
+              )}
+            </Card>
           ))}
         </div>
       )}
 
-      {/* Raw debug results (collapsible) */}
-      {Array.isArray(rawResults) && rawResults.length > 0 && (
-        <details className="mt-2">
-          <summary className="cursor-pointer">Show raw results & debug info</summary>
-          <pre className="max-h-64 overflow-auto text-xs bg-slate-50 p-2 rounded mt-2">{JSON.stringify(rawResults, null, 2)}</pre>
-        </details>
-      )}
-
-      {/* Low Results Warning */}
-      {results.length > 0 && results.length < 3 && (
-        <LowResultsWarning resultCount={results.length} />
-      )}
-
-      {/* Results */}
-      {results.length > 0 && (
-        <>
-          <SearchResults 
-            results={results}
-            rawResults={rawResults}
-            filteredOutCount={filteredOutCount}
-            loading={isSearching}
-          />
-          
-          <div className="text-center py-4">
-            <p className="text-sm text-muted-foreground mb-2">
-              Remember: Always verify information and respect privacy laws when conducting OSINT research.
+      {/* No Results Message */}
+      {!isSearching && !error && lastResponse && results.length === 0 && (
+        <Card>
+          <CardContent className="text-center py-8">
+            <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2">No Results Found</h3>
+            <p className="text-muted-foreground">
+              Try different search terms or verify the information is correct.
             </p>
-            <RealOSINTGuide />
-          </div>
-        </>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
 };
-
-export default EnhancedBasicSearchTab;
