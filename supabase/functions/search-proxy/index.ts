@@ -227,46 +227,289 @@ async function fetchScraperAPI(query: string): Promise<SearchResult[]> {
   try {
     console.log('🔍 Fetching from ScraperAPI...');
     
-    // Use ScraperAPI to scrape Google search results
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-    const url = `https://api.scraperapi.com?api_key=${SCRAPERAPI_API_KEY}&url=${encodeURIComponent(searchUrl)}&render=true`;
-    
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`ScraperAPI HTTP ${response.status}`);
-    }
-    
-    const html = await response.text();
-    console.log('🌐 ScraperAPI response length:', html.length);
-    
-    // Simple HTML parsing to extract search results
+    // Generate people search URLs for various platforms
+    const searchUrls = generatePeopleSearchUrls(query);
     const results: SearchResult[] = [];
     
-    // Extract basic info from HTML (simplified)
-    const titleMatches = html.match(/<h3[^>]*>([^<]+)<\/h3>/g) || [];
-    const linkMatches = html.match(/href="([^"]*google\.com[^"]*)"/g) || [];
-    
-    for (let i = 0; i < Math.min(titleMatches.length, 5); i++) {
-      const title = titleMatches[i].replace(/<[^>]*>/g, '').trim();
-      if (title && title.length > 5) {
-        results.push({
-          id: crypto.randomUUID(),
-          title: title,
-          snippet: `Search result from ScraperAPI for: ${query}`,
-          url: `https://google.com/search?q=${encodeURIComponent(query)}`,
-          source: 'scraperapi',
-          confidence: calculateIntelligentConfidence(title, 'search_result', query),
-          entities: extractEntities(title, query)
-        });
+    // Try scraping multiple people search sites
+    for (const { platform, url: searchUrl } of searchUrls.slice(0, 2)) { // Limit to 2 sites to reduce costs
+      try {
+        console.log(`🌐 Scraping ${platform}: ${searchUrl}`);
+        
+        const scraperUrl = `https://api.scraperapi.com?api_key=${SCRAPERAPI_API_KEY}&url=${encodeURIComponent(searchUrl)}&render=true&country_code=us`;
+        
+        const response = await fetch(scraperUrl);
+        if (!response.ok) {
+          console.log(`⚠️ ${platform} returned ${response.status}`);
+          continue;
+        }
+        
+        const html = await response.text();
+        console.log(`📄 ${platform} HTML length:`, html.length);
+        
+        // Extract results based on platform
+        const platformResults = extractPeopleSearchResults(html, platform, query, searchUrl);
+        results.push(...platformResults);
+        
+        // Add small delay between requests
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+      } catch (platformError) {
+        console.error(`❌ Error scraping ${platform}:`, platformError);
+        continue;
       }
     }
     
+    console.log(`✅ ScraperAPI extracted ${results.length} results`);
     return results;
     
   } catch (error) {
     console.error('❌ ScraperAPI error:', error);
     return [];
   }
+}
+
+// Generate search URLs for people search platforms
+function generatePeopleSearchUrls(query: string): { platform: string; url: string }[] {
+  // Extract potential name, location, phone, email from query
+  const emailMatch = query.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+  const phoneMatch = query.match(/\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}/);
+  const ageMatch = query.match(/age\s*(\d{1,3})/i);
+  const locationMatch = query.match(/\b([A-Z][a-z]+)\s+([A-Z]{2})\b/);
+  
+  // Extract likely name (first two capitalized words)
+  const words = query.split(/\s+/).filter(w => /^[A-Z][a-z]+$/.test(w));
+  const name = words.slice(0, 2).join(' ');
+  
+  const urls = [];
+  
+  if (name) {
+    // WhitePages search
+    const wpQuery = encodeURIComponent(name + (locationMatch ? ` ${locationMatch[1]} ${locationMatch[2]}` : ''));
+    urls.push({
+      platform: 'whitepages',
+      url: `https://www.whitepages.com/name/${wpQuery}`
+    });
+    
+    // Spokeo search  
+    const spokeoQuery = encodeURIComponent(name + (locationMatch ? ` ${locationMatch[1]} ${locationMatch[2]}` : ''));
+    urls.push({
+      platform: 'spokeo',
+      url: `https://www.spokeo.com/${spokeoQuery}`
+    });
+    
+    // TruePeopleSearch
+    const tpsQuery = encodeURIComponent(name);
+    urls.push({
+      platform: 'truepeoplesearch',
+      url: `https://www.truepeoplesearch.com/results?name=${tpsQuery}${locationMatch ? `&citystatezip=${encodeURIComponent(locationMatch[1] + ' ' + locationMatch[2])}` : ''}`
+    });
+  }
+  
+  if (phoneMatch) {
+    // Phone number searches
+    const cleanPhone = phoneMatch[0].replace(/\D/g, '');
+    urls.push({
+      platform: 'truecaller',
+      url: `https://www.truecaller.com/search/us/${cleanPhone}`
+    });
+  }
+  
+  return urls;
+}
+
+// Extract results from people search site HTML
+function extractPeopleSearchResults(html: string, platform: string, query: string, originalUrl: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  
+  try {
+    switch (platform) {
+      case 'whitepages':
+        return extractWhitePagesResults(html, query, originalUrl);
+      case 'spokeo':
+        return extractSpokeoResults(html, query, originalUrl);
+      case 'truepeoplesearch':
+        return extractTruePeopleSearchResults(html, query, originalUrl);
+      case 'truecaller':
+        return extractTrueCallerResults(html, query, originalUrl);
+      default:
+        return extractGenericResults(html, query, originalUrl, platform);
+    }
+  } catch (error) {
+    console.error(`❌ Error extracting results from ${platform}:`, error);
+    return [];
+  }
+}
+
+function extractWhitePagesResults(html: string, query: string, url: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  
+  // Look for person listings on WhitePages
+  const personMatches = html.match(/<div[^>]*class="[^"]*person[^"]*"[^>]*>[\s\S]*?<\/div>/gi) || [];
+  
+  personMatches.slice(0, 3).forEach((match, index) => {
+    const nameMatch = match.match(/<h[^>]*>([^<]+)<\/h[^>]*>/i);
+    const ageMatch = match.match(/age[^\d]*(\d{1,3})/i);
+    const locationMatch = match.match(/([A-Z][a-z]+,?\s*[A-Z]{2})/);
+    const phoneMatch = match.match(/\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}/);
+    
+    if (nameMatch) {
+      const entities: EntityResult[] = [];
+      const name = nameMatch[1].trim();
+      
+      entities.push({ type: 'name', value: name, confidence: 0.85 });
+      
+      if (ageMatch) entities.push({ type: 'age', value: ageMatch[1], confidence: 0.8 });
+      if (locationMatch) entities.push({ type: 'address', value: locationMatch[1], confidence: 0.7 });
+      if (phoneMatch) entities.push({ type: 'phone', value: phoneMatch[0], confidence: 0.8 });
+      
+      results.push({
+        id: crypto.randomUUID(),
+        title: `${name}${ageMatch ? `, Age ${ageMatch[1]}` : ''}${locationMatch ? ` - ${locationMatch[1]}` : ''}`,
+        snippet: `Person found on WhitePages${phoneMatch ? ` - Phone: ${phoneMatch[0]}` : ''}`,
+        url: url,
+        source: 'scraperapi',
+        confidence: calculateIntelligentConfidence(name, 'person', query),
+        entities: entities
+      });
+    }
+  });
+  
+  return results;
+}
+
+function extractSpokeoResults(html: string, query: string, url: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  
+  // Look for Spokeo person cards
+  const cardMatches = html.match(/<div[^>]*class="[^"]*card[^"]*"[^>]*>[\s\S]*?<\/div>/gi) || [];
+  
+  cardMatches.slice(0, 3).forEach((match) => {
+    const nameMatch = match.match(/data-name="([^"]+)"/i) || match.match(/<h[^>]*>([^<]+)<\/h[^>]*>/i);
+    const ageMatch = match.match(/(\d{1,3})\s*years?\s*old/i);
+    const locationMatch = match.match(/([A-Z][a-z]+,?\s*[A-Z]{2})/);
+    
+    if (nameMatch) {
+      const entities: EntityResult[] = [];
+      const name = nameMatch[1].trim();
+      
+      entities.push({ type: 'name', value: name, confidence: 0.82 });
+      if (ageMatch) entities.push({ type: 'age', value: ageMatch[1], confidence: 0.75 });
+      if (locationMatch) entities.push({ type: 'address', value: locationMatch[1], confidence: 0.65 });
+      
+      results.push({
+        id: crypto.randomUUID(),
+        title: `${name}${ageMatch ? `, ${ageMatch[1]} years old` : ''}${locationMatch ? ` in ${locationMatch[1]}` : ''}`,
+        snippet: `Profile found on Spokeo with potential contact information`,
+        url: url,
+        source: 'scraperapi',
+        confidence: calculateIntelligentConfidence(name, 'person', query),
+        entities: entities
+      });
+    }
+  });
+  
+  return results;
+}
+
+function extractTruePeopleSearchResults(html: string, query: string, url: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  
+  // Look for person entries
+  const entryMatches = html.match(/<div[^>]*data-link-to-more[^>]*>[\s\S]*?<\/div>/gi) || [];
+  
+  entryMatches.slice(0, 3).forEach((match) => {
+    const nameMatch = match.match(/<h\d[^>]*>([^<]+)<\/h\d>/i);
+    const ageMatch = match.match(/age[^\d]*(\d{1,3})/i);
+    const phoneMatch = match.match(/\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}/);
+    const addressMatch = match.match(/\d+[^,]+,[^,]+,\s*[A-Z]{2}/);
+    
+    if (nameMatch) {
+      const entities: EntityResult[] = [];
+      const name = nameMatch[1].trim();
+      
+      entities.push({ type: 'name', value: name, confidence: 0.88 });
+      if (ageMatch) entities.push({ type: 'age', value: ageMatch[1], confidence: 0.85 });
+      if (phoneMatch) entities.push({ type: 'phone', value: phoneMatch[0], confidence: 0.9 });
+      if (addressMatch) entities.push({ type: 'address', value: addressMatch[0], confidence: 0.8 });
+      
+      results.push({
+        id: crypto.randomUUID(),
+        title: `${name}${ageMatch ? `, Age ${ageMatch[1]}` : ''}`,
+        snippet: `TruePeopleSearch record${phoneMatch ? ` - ${phoneMatch[0]}` : ''}${addressMatch ? ` - ${addressMatch[0]}` : ''}`,
+        url: url,
+        source: 'scraperapi',
+        confidence: calculateIntelligentConfidence(name, 'person', query),
+        entities: entities
+      });
+    }
+  });
+  
+  return results;
+}
+
+function extractTrueCallerResults(html: string, query: string, url: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  
+  // Look for caller ID info
+  const nameMatch = html.match(/<h[^>]*class="[^"]*name[^"]*"[^>]*>([^<]+)<\/h[^>]*>/i);
+  const phoneMatch = query.match(/\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}/);
+  const locationMatch = html.match(/location[^>]*>([^<]+)</i);
+  
+  if (nameMatch && phoneMatch) {
+    const entities: EntityResult[] = [
+      { type: 'name', value: nameMatch[1].trim(), confidence: 0.8 },
+      { type: 'phone', value: phoneMatch[0], confidence: 0.95 }
+    ];
+    
+    if (locationMatch) {
+      entities.push({ type: 'address', value: locationMatch[1].trim(), confidence: 0.7 });
+    }
+    
+    results.push({
+      id: crypto.randomUUID(),
+      title: `${nameMatch[1].trim()} - ${phoneMatch[0]}`,
+      snippet: `Phone number owner identified on TrueCaller${locationMatch ? ` - ${locationMatch[1]}` : ''}`,
+      url: url,
+      source: 'scraperapi',
+      confidence: 0.85,
+      entities: entities
+    });
+  }
+  
+  return results;
+}
+
+function extractGenericResults(html: string, query: string, url: string, platform: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  
+  // Generic extraction - look for names, phones, addresses in any HTML
+  const text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+  const entities = extractEntities(text, query);
+  
+  if (entities.length > 0) {
+    // Group entities by type
+    const names = entities.filter(e => e.type === 'name');
+    const phones = entities.filter(e => e.type === 'phone');
+    const addresses = entities.filter(e => e.type === 'address');
+    
+    if (names.length > 0) {
+      const topName = names[0];
+      const snippet = `Information found on ${platform}${phones.length > 0 ? ` - Phone: ${phones[0].value}` : ''}${addresses.length > 0 ? ` - ${addresses[0].value}` : ''}`;
+      
+      results.push({
+        id: crypto.randomUUID(),
+        title: `${topName.value} - ${platform} Record`,
+        snippet: snippet,
+        url: url,
+        source: 'scraperapi',
+        confidence: calculateIntelligentConfidence(topName.value, 'person', query),
+        entities: entities.slice(0, 5) // Limit entities
+      });
+    }
+  }
+  
+  return results;
 }
 
 // Main handler
