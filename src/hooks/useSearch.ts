@@ -1,164 +1,162 @@
-// src/hooks/useSearch.ts
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
-export type SearchParams = { query: string; page?: number; user_id?: string | null };
-export type SearchProgress = {
-  phase: 'idle' | 'queued' | 'fetching' | 'extracting' | 'persisting' | 'complete';
-  progress: number;
-  currentQuery: string;
-  totalQueries: number;
-  completedQueries: number;
-  startedAt?: number;
-};
+export interface SearchResult {
+  id: string;
+  title: string;
+  snippet?: string;
+  url: string;
+  source: string;
+  confidence: number;
+  entities: Array<{
+    type: string;
+    value: string;
+    confidence: number;
+  }>;
+}
 
-export function useSearch(initial?: Partial<SearchParams>) {
-  const [params, setParams] = useState<SearchParams>({ query: initial?.query || '', page: initial?.page || 1, user_id: initial?.user_id ?? null });
+export interface SearchResponse {
+  success: boolean;
+  sessionId: string;
+  query: string;
+  totalResults: number;
+  totalCost: number;
+  results: SearchResult[];
+  summary: {
+    serpapi: number;
+    hunter: number;
+    scraperapi: number;
+    totalEntities: number;
+  };
+  error?: string;
+}
+
+export interface UseSearchReturn {
+  results: SearchResult[];
+  isSearching: boolean;
+  error: string | null;
+  lastResponse: SearchResponse | null;
+  search: (query: string) => Promise<void>;
+  clearResults: () => void;
+}
+
+export const useSearch = (): UseSearchReturn => {
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<any[]>([]);
-  const [rawResults, setRawResults] = useState<any[] | undefined>(undefined);
-  const [filteredOutCount, setFilteredOutCount] = useState<number>(0);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [progress, setProgress] = useState<SearchProgress>({
-    phase: 'idle',
-    progress: 0,
-    currentQuery: '',
-    totalQueries: 1,
-    completedQueries: 0,
-  });
+  const [lastResponse, setLastResponse] = useState<SearchResponse | null>(null);
+  const { toast } = useToast();
 
-  const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    // restore any pending state from localStorage
-    try {
-      const saved = localStorage.getItem('tracevista_pending_search_state_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed?.params) setParams(parsed.params);
-        if (parsed?.results) setResults(parsed.results);
-        if (parsed?.progress) setProgress(parsed.progress);
-        localStorage.removeItem('tracevista_pending_search_state_v1');
-      }
-    } catch (err) {
-      // ignore
-    }
-  }, []);
-
-  const ensureSession = useCallback(async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        // attempt server refresh
-        try {
-          const resp = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
-          if (resp.ok) {
-            const json = await resp.json();
-            if (json?.access_token && json?.refresh_token) {
-              await supabase.auth.setSession({ access_token: json.access_token, refresh_token: json.refresh_token });
-              return true;
-            }
-          }
-        } catch (err) {
-          // ignore
-        }
-        return false;
-      }
-      // optionally refresh if expiring soon (left out for brevity)
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }, []);
-
-  const performSearch = useCallback(async (overrideParams?: Partial<SearchParams>) => {
-    const p = { ...params, ...(overrideParams || {}) };
-    setParams(p);
-    setError(null);
-    setIsSearching(true);
+  const clearResults = useCallback(() => {
     setResults([]);
-    setRawResults(undefined);
-    setFilteredOutCount(0);
-    setSessionId(null);
-    setProgress(prev => ({ ...prev, phase: 'queued', progress: 0, currentQuery: p.query, startedAt: Date.now() }));
+    setError(null);
+    setLastResponse(null);
+  }, []);
 
-    const ok = await ensureSession();
-    if (!ok) {
-      setError('Authentication required. Please sign in.');
-      setIsSearching(false);
+  const search = useCallback(async (query: string) => {
+    if (!query || query.trim().length === 0) {
+      setError('Query cannot be empty');
       return;
     }
 
-    // persist state
-    try {
-      localStorage.setItem('tracevista_pending_search_state_v1', JSON.stringify({ params: p, progress }));
-    } catch (err) {}
-
-    // abort previous
-    if (abortRef.current) {
-      try { abortRef.current.abort(); } catch (e) {}
-    }
-    const controller = new AbortController();
-    abortRef.current = controller;
+    setIsSearching(true);
+    setError(null);
+    setResults([]);
+    setLastResponse(null);
 
     try {
-      setProgress(prev => ({ ...prev, phase: 'fetching', progress: 10 }));
+      console.log('🚀 Starting search for:', query);
+
+      // Get current user session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      const searchParams = {
-        q: p.query,
-        page: p.page || 1,
-        ...(p.user_id ? { user_id: p.user_id } : {})
+      if (sessionError) {
+        throw new Error(`Authentication error: ${sessionError.message}`);
+      }
+      
+      if (!session) {
+        throw new Error('No active session. Please sign in to search.');
+      }
+
+      const searchPayload = {
+        q: query.trim(),
+        userId: session.user.id,
+        sessionId: crypto.randomUUID()
       };
 
-      const { data: json, error: functionError } = await supabase.functions.invoke('search-proxy', {
-        body: searchParams
+      console.log('📤 Sending search request:', { 
+        query: searchPayload.q, 
+        userId: searchPayload.userId.substring(0, 8) + '...' 
+      });
+
+      // Call the search-proxy edge function
+      const { data, error: functionError } = await supabase.functions.invoke('search-proxy', {
+        body: searchPayload
       });
 
       if (functionError) {
-        throw new Error(`Search error: ${functionError.message}`);
+        console.error('❌ Edge function error:', functionError);
+        throw new Error(`Search function error: ${functionError.message}`);
       }
-      setProgress(prev => ({ ...prev, phase: 'extracting', progress: 60 }));
 
-      setResults(Array.isArray(json.results) ? json.results : []);
-      setRawResults(Array.isArray(json.rawResults) ? json.rawResults : undefined);
-      setFilteredOutCount(typeof json.filteredOutCount === 'number' ? json.filteredOutCount : 0);
-      setSessionId(json.sessionId ?? null);
+      console.log('📥 Search response received:', {
+        success: data?.success,
+        totalResults: data?.totalResults,
+        hasResults: Array.isArray(data?.results)
+      });
 
-      setProgress(prev => ({ ...prev, phase: 'persisting', progress: 90 }));
-      setIsSearching(false);
-      setProgress(prev => ({ ...prev, phase: 'complete', progress: 100, completedQueries: prev.totalQueries }));
-      // clear saved snapshot
-      try { localStorage.removeItem('tracevista_pending_search_state_v1'); } catch (e) {}
-      return { success: true, json };
-    } catch (err: any) {
-      const msg = (() => {
-        if (!err) return 'Unknown error';
-        const s = String(err.message || err);
-        if (/timeout|AbortError/i.test(s)) return 'Search timed out. Try again.';
-        if (/auth|401|unauthorized/i.test(s)) return 'Authentication error. Please sign in.';
-        if (/rate limit|429/i.test(s)) return 'Rate limit reached. Try later.';
-        return s;
-      })();
-      setError(msg);
-      setIsSearching(false);
-      setProgress(prev => ({ ...prev, phase: 'complete' }));
-      return { success: false, error: msg };
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'Search failed - no results returned');
+      }
+
+      const searchResponse: SearchResponse = {
+        success: data.success,
+        sessionId: data.sessionId,
+        query: data.query,
+        totalResults: data.totalResults || 0,
+        totalCost: data.totalCost || 0,
+        results: data.results || [],
+        summary: data.summary || { serpapi: 0, hunter: 0, scraperapi: 0, totalEntities: 0 }
+      };
+
+      setLastResponse(searchResponse);
+      setResults(searchResponse.results);
+
+      // Show success toast
+      toast({
+        title: "Search Complete",
+        description: `Found ${searchResponse.totalResults} results with ${searchResponse.summary.totalEntities} entities extracted`,
+      });
+
+      console.log('✅ Search completed successfully:', {
+        results: searchResponse.totalResults,
+        entities: searchResponse.summary.totalEntities,
+        cost: searchResponse.totalCost
+      });
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown search error';
+      console.error('💥 Search failed:', errorMessage);
+      
+      setError(errorMessage);
+      
+      toast({
+        title: "Search Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
     } finally {
-      abortRef.current = null;
+      setIsSearching(false);
     }
-  }, [params, ensureSession]);
+  }, [toast]);
 
   return {
-    params,
-    setParams,
+    results,
     isSearching,
     error,
-    results,
-    rawResults,
-    filteredOutCount,
-    sessionId,
-    progress,
-    performSearch,
+    lastResponse,
+    search,
+    clearResults
   };
-}
+};
