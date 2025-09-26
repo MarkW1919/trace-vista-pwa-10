@@ -31,7 +31,28 @@ serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
+    // Add better error handling for request body
+    let body;
+    try {
+      const text = await req.text();
+      console.log('🔍 Raw request body:', text);
+      
+      if (!text.trim()) {
+        throw new Error('Empty request body');
+      }
+      
+      body = JSON.parse(text);
+    } catch (parseError) {
+      console.error('❌ JSON parse error:', parseError);
+      return new Response(JSON.stringify({ 
+        error: 'Invalid JSON in request body',
+        details: parseError instanceof Error ? parseError.message : 'Unknown parsing error'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const { q: query, userId, user_id, sessionId } = body;
     
     // Handle both userId and user_id for backwards compatibility
@@ -198,11 +219,34 @@ async function fetchHunterAPI(query: string): Promise<any[]> {
 }
 
 async function fetchScraperAPI(query: string): Promise<any[]> {
-  if (!SCRAPERAPI_API_KEY) return [];
+  if (!SCRAPERAPI_API_KEY) {
+    console.log('⚠️ ScraperAPI key not found, skipping ScraperAPI search');
+    return [];
+  }
+  
   try {
-    const res = await fetch(`https://api.scraperapi.com?api_key=${SCRAPERAPI_API_KEY}&url=${encodeURIComponent(query)}`);
+    console.log('🔗 Attempting ScraperAPI search for:', query);
+    const url = `https://api.scraperapi.com/search?api_key=${SCRAPERAPI_API_KEY}&query=${encodeURIComponent(query)}&format=json`;
+    
+    const res = await fetch(url);
     const data = await res.json();
-    return data.results || [];
+    
+    console.log('📊 ScraperAPI response:', { status: res.status, dataKeys: Object.keys(data) });
+    
+    if (!res.ok) {
+      console.error('❌ ScraperAPI HTTP error:', res.status, data);
+      return [];
+    }
+    
+    // Handle different response formats from ScraperAPI
+    const results = data.results || data.organic_results || data.items || [];
+    
+    return results.map((item: any) => ({
+      title: item.title || item.name || 'No title',
+      snippet: item.snippet || item.description || '',
+      url: item.url || item.link || '',
+      source: 'scraperapi'
+    }));
   } catch (err) {
     console.error('ScraperAPI error:', err);
     return [];
