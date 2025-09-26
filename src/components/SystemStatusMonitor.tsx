@@ -474,10 +474,6 @@ export const SystemStatusMonitor = () => {
           </div>
         </div>
 
-        {/* Test Search Component */}
-        <div className="mt-8">
-          <TestSearchComponent />
-        </div>
       </CardContent>
     </Card>
   );
