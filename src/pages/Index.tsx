@@ -38,7 +38,7 @@ const Index = () => {
       case 'intro':
         return <IntroductionTab />;
       case 'deep':
-        return <EnhancedBasicSearchTab />;
+        return <BasicSearchTab />;
       case 'enhanced':
         return <EnhancedBasicSearchTab />;
       case 'report':

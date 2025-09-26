@@ -101,10 +101,10 @@ export const BasicSearchTab = () => {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-bold mb-2">Basic Skip Tracing Search</h2>
+        <h2 className="text-2xl font-bold mb-2">Deep Search (Fast & Efficient)</h2>
         <p className="text-muted-foreground">
-          Enter available information to search public sources for leads. This demonstrates 
-          how small pieces of information can be correlated to build a profile.
+          Tier 1: Quick comprehensive search across web sources using SerpAPI for fast results. 
+          Perfect for initial investigations and lead generation.
         </p>
       </div>
 

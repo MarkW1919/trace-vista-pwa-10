@@ -8,8 +8,8 @@ interface NavigationTabsProps {
 
 const tabs = [
   { id: 'intro', label: 'Introduction', icon: Home },
-  { id: 'deep', label: 'Deep Search', icon: Search },
-  { id: 'enhanced', label: 'Enhanced Pro', icon: Users },
+  { id: 'deep', label: 'Deep Search (Fast)', icon: Search },
+  { id: 'enhanced', label: 'Enhanced Pro (Max Accuracy)', icon: Users },
   { id: 'report', label: 'Report', icon: BookOpen },
   { id: 'methodology', label: 'Methodology', icon: BookOpen },
   { id: 'monitor', label: 'System Status', icon: Activity },

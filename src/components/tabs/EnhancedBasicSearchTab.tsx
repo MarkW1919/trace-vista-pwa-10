@@ -101,10 +101,10 @@ export const EnhancedBasicSearchTab: React.FC = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Search className="h-5 w-5" />
-            Enhanced Basic Search
+            Enhanced Pro Search - Maximum Accuracy
           </CardTitle>
           <CardDescription>
-            Enter known information about the person you're investigating. The system will construct an intelligent search query across multiple databases.
+            Tier 2: Advanced comprehensive search using multiple specialized APIs (ScraperAPI, Hunter.io, SerpAPI) for maximum accuracy and depth. Includes people search databases and email intelligence.
           </CardDescription>
         </CardHeader>
         <CardContent>
