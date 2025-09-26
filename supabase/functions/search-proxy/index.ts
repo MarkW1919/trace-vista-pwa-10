@@ -32,11 +32,21 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { q: query, userId, sessionId } = body;
+    const { q: query, userId, user_id, sessionId } = body;
+    
+    // Handle both userId and user_id for backwards compatibility
+    const actualUserId = userId || user_id;
+    const actualSessionId = sessionId || crypto.randomUUID();
 
-    console.log('🔍 Streaming search request:', { query, userId, sessionId });
+    console.log('🔍 Streaming search request:', { 
+      query, 
+      actualUserId, 
+      actualSessionId,
+      originalBody: body 
+    });
 
-    if (!query || !userId) {
+    if (!query || !actualUserId) {
+      console.error('❌ Missing required parameters:', { query: !!query, userId: !!actualUserId });
       return new Response(JSON.stringify({ error: 'Missing query or userId' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -93,18 +103,22 @@ serve(async (req) => {
                   };
 
                   // Save entities to database
-                  if (enhanced.entities?.length && sessionId) {
+                  if (enhanced.entities?.length && actualSessionId) {
                     const extractedEntities = enhanced.entities.map((entity: any) => ({
-                      session_id: sessionId,
+                      session_id: actualSessionId,
                       entity_type: entity.type,
                       entity_value: entity.value,
-                      confidence_score: entity.confidence,
-                      source_result_id: enhanced.id
+                      confidence: entity.confidence,
+                      source_result_id: enhanced.id,
+                      user_id: actualUserId
                     }));
                     
+                    console.log('💾 Inserting entities:', extractedEntities.length);
                     const { error: entityError } = await supabase.from('extracted_entities').insert(extractedEntities);
                     if (entityError) {
-                      console.error('Entity insert error:', entityError);
+                      console.error('❌ Entity insert error:', entityError);
+                    } else {
+                      console.log('✅ Entities inserted successfully');
                     }
                   }
 
@@ -114,7 +128,7 @@ serve(async (req) => {
             }
 
             // Close JSON structure
-            controller.enqueue(encoder.encode(`\n], "sessionId": "${sessionId}", "totalResults": ${resultCount} }`));
+            controller.enqueue(encoder.encode(`\n], "sessionId": "${actualSessionId}", "totalResults": ${resultCount} }`));
             controller.close();
           } catch (err) {
             console.error('Stream processing error:', err);

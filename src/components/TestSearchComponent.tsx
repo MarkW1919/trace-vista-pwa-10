@@ -46,12 +46,15 @@ export const TestSearchComponent = () => {
       
       console.log('📡 Calling search-proxy edge function...');
       
+      const sessionId = crypto.randomUUID();
+      console.log('🆔 Generated session ID:', sessionId);
+      
       // Call the search-proxy edge function with explicit error handling
       const { data, error } = await supabase.functions.invoke('search-proxy', {
         body: {
           q: searchQuery,
-          page: 1,
-          user_id: session.user.id
+          userId: session.user.id,
+          sessionId: sessionId
         },
         headers: {
           'Content-Type': 'application/json',
