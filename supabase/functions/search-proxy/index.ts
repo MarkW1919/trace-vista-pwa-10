@@ -35,13 +35,23 @@ serve(async (req) => {
     let body;
     try {
       const text = await req.text();
-      console.log('🔍 Raw request body:', text);
+      console.log('🔍 Raw request body length:', text.length);
+      console.log('🔍 Request method:', req.method);
+      console.log('🔍 Content-Type:', req.headers.get('Content-Type'));
       
       if (!text.trim()) {
-        throw new Error('Empty request body');
+        console.error('❌ Empty request body received');
+        return new Response(JSON.stringify({ 
+          error: 'Empty request body',
+          received: 'No body content'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
       
       body = JSON.parse(text);
+      console.log('✅ Successfully parsed JSON body:', Object.keys(body));
     } catch (parseError) {
       console.error('❌ JSON parse error:', parseError);
       return new Response(JSON.stringify({ 
@@ -59,16 +69,24 @@ serve(async (req) => {
     const actualUserId = userId || user_id;
     const actualSessionId = sessionId || crypto.randomUUID();
 
-    console.log('🔍 Streaming search request:', { 
+    console.log('🔍 Extracted parameters:', { 
       query, 
       actualUserId, 
-      actualSessionId,
-      originalBody: body 
+      actualSessionId
     });
 
     if (!query || !actualUserId) {
-      console.error('❌ Missing required parameters:', { query: !!query, userId: !!actualUserId });
-      return new Response(JSON.stringify({ error: 'Missing query or userId' }), {
+      console.error('❌ Missing required parameters:', { 
+        hasQuery: !!query, 
+        hasUserId: !!actualUserId,
+        query,
+        actualUserId 
+      });
+      return new Response(JSON.stringify({ 
+        error: 'Missing required parameters',
+        required: ['q (query)', 'userId'],
+        received: { q: !!query, userId: !!actualUserId }
+      }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -101,13 +119,30 @@ serve(async (req) => {
 
         // Start API searches
         const searchPromises = [
-          fetchSerpAPI(query).catch(err => { console.warn('SerpAPI failed:', err); return []; }),
-          fetchHunterAPI(query).catch(err => { console.warn('Hunter failed:', err); return []; }),
-          fetchScraperAPI(query).catch(err => { console.warn('ScraperAPI failed:', err); return []; })
+          fetchSerpAPI(query).catch(err => { 
+            console.warn('SerpAPI failed:', err.message); 
+            return []; 
+          }),
+          fetchHunterAPI(query).catch(err => { 
+            console.warn('Hunter failed:', err.message); 
+            return []; 
+          }),
+          fetchScraperAPI(query).catch(err => { 
+            console.warn('ScraperAPI failed:', err.message); 
+            return []; 
+          })
         ];
+
+        console.log('🚀 Starting parallel API searches...');
 
         Promise.allSettled(searchPromises).then(async (results) => {
           try {
+            console.log('📊 API search results:', results.map((r, i) => ({
+              api: ['SerpAPI', 'Hunter', 'ScraperAPI'][i],
+              status: r.status,
+              resultCount: r.status === 'fulfilled' ? r.value?.length || 0 : 0
+            })));
+
             for (const result of results) {
               if (result.status === 'fulfilled' && Array.isArray(result.value)) {
                 for (const apiResult of result.value) {
@@ -147,6 +182,8 @@ serve(async (req) => {
                 }
               }
             }
+
+            console.log(`✅ Streaming complete. Total results: ${resultCount}`);
 
             // Close JSON structure
             controller.enqueue(encoder.encode(`\n], "sessionId": "${actualSessionId}", "totalResults": ${resultCount} }`));
