@@ -24,15 +24,21 @@ interface BreachResult {
   confidence: number;
 }
 
+interface DomainInfo {
+  domain: string;
+  mx_records?: string[];
+  whois_data?: {
+    registrar: string;
+    creation_date: string;
+    expiration_date: string;
+  };
+}
+
 interface EmailSearchResult {
   email: string;
   breaches_found: number;
   breaches: BreachResult[];
-  domain_info: {
-    domain: string;
-    mx_records?: string[];
-    whois_data?: any;
-  };
+  domain_info: DomainInfo;
   platform_accounts: string[];
   search_time: number;
   session_id: string;
@@ -127,9 +133,9 @@ async function checkPlatformAccounts(email: string): Promise<string[]> {
   return foundPlatforms;
 }
 
-async function getDomainInfo(domain: string) {
+async function getDomainInfo(domain: string): Promise<DomainInfo> {
   try {
-    const domainInfo = { domain };
+    const domainInfo: DomainInfo = { domain };
     
     // Get MX records (DNS lookup)
     try {
@@ -295,12 +301,12 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in email-breach-search function:', error);
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message,
+        error: error.message || 'Unknown error occurred',
         results: null
       }),
       { 

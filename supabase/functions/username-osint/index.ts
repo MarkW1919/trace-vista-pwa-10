@@ -14,19 +14,21 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
+interface ProfileData {
+  displayName?: string;
+  bio?: string;
+  location?: string;
+  followerCount?: number;
+  verified?: boolean;
+  avatar?: string;
+}
+
 interface PlatformResult {
   platform: string;
   url: string;
   found: boolean;
   response_time: number;
-  profile_data?: {
-    displayName?: string;
-    bio?: string;
-    location?: string;
-    followerCount?: number;
-    verified?: boolean;
-    avatar?: string;
-  };
+  profile_data?: ProfileData;
   confidence: number;
 }
 
@@ -134,7 +136,7 @@ async function checkPlatform(platform: any, username: string): Promise<PlatformR
   return result;
 }
 
-function extractProfileData(platformName: string, data: any): any {
+function extractProfileData(platformName: string, data: any): ProfileData {
   switch (platformName.toLowerCase()) {
     case 'github':
       return {
@@ -195,7 +197,7 @@ function extractProfileData(platformName: string, data: any): any {
       };
 
     default:
-      return data;
+      return data || {};
   }
   return {};
 }
@@ -320,12 +322,12 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in username-osint function:', error);
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message,
+        error: error.message || 'Unknown error occurred',
         results: null
       }),
       { 

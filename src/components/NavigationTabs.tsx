@@ -1,5 +1,5 @@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Users, Phone, Network, BookOpen, Home, Activity } from 'lucide-react';
+import { Search, Users, Phone, Network, BookOpen, Home, Activity, User, Mail, FileText } from 'lucide-react';
 
 interface NavigationTabsProps {
   activeTab: string;

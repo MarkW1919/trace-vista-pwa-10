@@ -25,33 +25,58 @@ interface SkipTracingQuery {
   };
 }
 
+interface PersonalInfo {
+  names: string[];
+  addresses: string[];
+  phones: string[];
+  emails: string[];
+  associates: string[];
+  relatives: string[];
+}
+
+interface PublicRecords {
+  voter_registration?: {
+    name: string;
+    party: string;
+    registration_date: string;
+    status: string;
+  };
+  property_records: Array<{
+    address: string;
+    owner: string;
+    assessed_value: number;
+    property_type: string;
+    year_built: number;
+  }>;
+  business_records: any[];
+  court_records: any[];
+  bankruptcy?: any;
+}
+
+interface DigitalFootprint {
+  social_media: string[];
+  websites: string[];
+  online_profiles: string[];
+}
+
+interface Assets {
+  vehicles: Array<{
+    make: string;
+    model: string;
+    year: number;
+    vin: string;
+    registration_state: string;
+  }>;
+  properties: any[];
+  businesses: any[];
+}
+
 interface SkipTracingResult {
   query: SkipTracingQuery;
-  personal_info: {
-    names: string[];
-    addresses: string[];
-    phones: string[];
-    emails: string[];
-    associates: string[];
-    relatives: string[];
-  };
-  public_records: {
-    voter_registration?: any;
-    property_records?: any[];
-    business_records?: any[];
-    court_records?: any[];
-    bankruptcy?: any;
-  };
-  digital_footprint: {
-    social_media: string[];
-    websites: string[];
-    online_profiles: string[];
-  };
-  assets: {
-    vehicles?: any[];
-    properties?: any[];
-    businesses?: any[];
-  };
+  personal_info: PersonalInfo;
+  public_records: PublicRecords;
+  digital_footprint: DigitalFootprint;
+  assets: Assets;
   confidence_score: number;
   search_time: number;
   session_id: string;
@@ -75,8 +100,8 @@ const PUBLIC_RECORD_SOURCES = [
   'Trademark Database'
 ];
 
-async function searchPersonByName(name: string, additionalInfo?: any): Promise<any> {
-  const results = {
+async function searchPersonByName(name: string, additionalInfo?: any): Promise<PersonalInfo> {
+  const results: PersonalInfo = {
     names: [name],
     addresses: [],
     phones: [],
@@ -121,8 +146,8 @@ async function searchPersonByName(name: string, additionalInfo?: any): Promise<a
   return results;
 }
 
-async function searchByPhone(phone: string): Promise<any> {
-  const results = {
+async function searchByPhone(phone: string): Promise<PersonalInfo> {
+  const results: PersonalInfo = {
     names: [],
     addresses: [],
     phones: [phone],
@@ -142,8 +167,8 @@ async function searchByPhone(phone: string): Promise<any> {
   return results;
 }
 
-async function searchByEmail(email: string): Promise<any> {
-  const results = {
+async function searchByEmail(email: string): Promise<PersonalInfo> {
+  const results: PersonalInfo = {
     names: [],
     addresses: [],
     phones: [],
@@ -163,13 +188,13 @@ async function searchByEmail(email: string): Promise<any> {
   return results;
 }
 
-async function searchPublicRecords(personalInfo: any): Promise<any> {
-  const records = {
-    voter_registration: null,
+async function searchPublicRecords(personalInfo: PersonalInfo): Promise<PublicRecords> {
+  const records: PublicRecords = {
+    voter_registration: undefined,
     property_records: [],
     business_records: [],
     court_records: [],
-    bankruptcy: null
+    bankruptcy: undefined
   };
 
   // Simulate public records search
@@ -195,8 +220,8 @@ async function searchPublicRecords(personalInfo: any): Promise<any> {
   return records;
 }
 
-async function searchDigitalFootprint(personalInfo: any): Promise<any> {
-  const footprint = {
+async function searchDigitalFootprint(personalInfo: PersonalInfo): Promise<DigitalFootprint> {
+  const footprint: DigitalFootprint = {
     social_media: [],
     websites: [],
     online_profiles: []
@@ -213,8 +238,8 @@ async function searchDigitalFootprint(personalInfo: any): Promise<any> {
   return footprint;
 }
 
-async function searchAssets(personalInfo: any): Promise<any> {
-  const assets = {
+async function searchAssets(personalInfo: PersonalInfo): Promise<Assets> {
+  const assets: Assets = {
     vehicles: [],
     properties: [],
     businesses: []
@@ -346,7 +371,7 @@ serve(async (req) => {
 
     console.log(`Starting advanced skip tracing: ${query.type} = ${query.value}`);
 
-    let personalInfo;
+    let personalInfo: PersonalInfo;
 
     // Different search strategies based on input type
     switch (query.type) {
@@ -413,12 +438,12 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in advanced-skiptracer function:', error);
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message,
+        error: error.message || 'Unknown error occurred',
         results: null
       }),
       { 
