@@ -5,6 +5,9 @@ import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { IntroductionTab } from '@/components/tabs/IntroductionTab';
 import { EnhancedBasicSearchTab } from '@/components/tabs/EnhancedBasicSearchTab';
 import { BasicSearchTab } from '@/components/tabs/BasicSearchTab';
+import { UsernameOsintTab } from '@/components/tabs/UsernameOsintTab';
+import { EmailBreachTab } from '@/components/tabs/EmailBreachTab';
+import { AdvancedSkipTracingTab } from '@/components/tabs/AdvancedSkipTracingTab';
 import { SocialSearchTab } from '@/components/tabs/SocialSearchTab';
 import { EnhancedPhoneValidationTab } from '@/components/tabs/EnhancedPhoneValidationTab';
 import { EmailOsintTab } from '@/components/tabs/EmailOsintTab';
@@ -41,6 +44,12 @@ const Index = () => {
         return <BasicSearchTab />;
       case 'enhanced':
         return <EnhancedBasicSearchTab />;
+      case 'username':
+        return <UsernameOsintTab />;
+      case 'email-breach':
+        return <EmailBreachTab />;
+      case 'skiptracing':
+        return <AdvancedSkipTracingTab />;
       case 'report':
         return <ComprehensiveReportTab />;
       case 'methodology':

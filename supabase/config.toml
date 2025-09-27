@@ -8,3 +8,12 @@ verify_jwt = true
 
 [functions.scraperapi-health]
 verify_jwt = false
+
+[functions.username-osint]
+verify_jwt = true
+
+[functions.email-breach-search]
+verify_jwt = true
+
+[functions.advanced-skiptracer]
+verify_jwt = true
